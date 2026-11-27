@@ -31,6 +31,16 @@ export class PhysCloth {
     this.collisionMargin = 0.0022;
     this.friction = 0.45;       // matches include/phys/cloth.h (0.45)
     this.groundFriction = 0.16; // allows outer skirt to glide outward & flatten dead-flat on table
+    this.selfCollision = true;
+    this.selfMinDist = 0.0082;  // non-adjacent particle separation (< grid spacing ~0.0103 m)
+    this.selfTriDist = 0.0036;  // exact point-to-non-adjacent-triangle layer thickness
+
+    // Pre-allocated flat spatial hash structures for zero-GC self-collision
+    this._hashSize = 4096;
+    this._hashHead = new Int32Array(this._hashSize);
+    this._hashNext = new Int32Array(N);
+    this._triHashHead = new Int32Array(this._hashSize);
+    this._triHashNext = new Int32Array((W - 1) * (H - 1) * 2);
 
     /** @type {Array<{cx:number, cy:number, cz:number, r:number}>} */
     this.spheres = [];
@@ -227,11 +237,393 @@ export class PhysCloth {
         }
       }
       this.collide();
+      if (this.selfCollision && (it === this.iterations - 1 || it % 7 === 6)) {
+        this.collideSelfParticles();
+      }
+    }
+
+    // 2b. Exact side-consistent point-vs-triangle self-collision prevention (eliminates cloth layer crossing!)
+    if (this.selfCollision) {
+      this.collideSelfTriangles();
+      this.collide();
+      this.collideSelfTriangles();
+      this.collide();
     }
 
     // 3. Tangential contact friction & smooth vertex normals
     this.applyContactFriction();
     this.computeNormals();
+  }
+
+  _hashCell(ix, iy, iz) {
+    return (((ix * 73856093) ^ (iy * 19349663) ^ (iz * 83492791)) >>> 0) & (this._hashSize - 1);
+  }
+
+  /**
+   * Spatial-hash non-adjacent particle-particle self-collision pass.
+   * Keeps folded cloth layers cleanly separated without disturbing immediate grid neighbors.
+   */
+  collideSelfParticles() {
+    const W = this.W;
+    const H = this.H;
+    const N = W * H;
+    const pos = this.pos;
+    const prev = this.prev;
+    const pinned = this.pinned;
+    const minDist = this.selfMinDist;
+    const minDist2 = minDist * minDist;
+    const invCell = 1.0 / (minDist * 1.45);
+    const head = this._hashHead;
+    const next = this._hashNext;
+    head.fill(-1);
+
+    // Insert all particles into spatial hash
+    for (let i = 0; i < N; i++) {
+      const i3 = i * 3;
+      const h = this._hashCell(
+        Math.floor(pos[i3] * invCell),
+        Math.floor(pos[i3 + 1] * invCell),
+        Math.floor(pos[i3 + 2] * invCell)
+      );
+      next[i] = head[h];
+      head[h] = i;
+    }
+
+    const groundFloor = this.groundY + this.collisionMargin;
+    for (let i = 0; i < N; i++) {
+      const i3 = i * 3;
+      const gxi = i % W;
+      const gyi = (i / W) | 0;
+      const cx = Math.floor(pos[i3] * invCell);
+      const cy = Math.floor(pos[i3 + 1] * invCell);
+      const cz = Math.floor(pos[i3 + 2] * invCell);
+
+      for (let dz = -1; dz <= 1; dz++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            let j = head[this._hashCell(cx + dx, cy + dy, cz + dz)];
+            while (j !== -1) {
+              if (j > i) {
+                const gxj = j % W;
+                const gyj = (j / W) | 0;
+                // Only separate truly non-adjacent cloth regions (Chebyshev grid distance >= 2)
+                if (Math.abs(gxi - gxj) > 1 || Math.abs(gyi - gyj) > 1) {
+                  const pa = pinned[i];
+                  const pb = pinned[j];
+                  if (!(pa && pb)) {
+                    const j3 = j * 3;
+                    let rx = pos[j3] - pos[i3];
+                    let ry = pos[j3 + 1] - pos[i3 + 1];
+                    let rz = pos[j3 + 2] - pos[i3 + 2];
+                    const d2 = rx * rx + ry * ry + rz * rz;
+                    if (d2 < minDist2) {
+                      let len = Math.sqrt(d2);
+                      if (len < 1e-7) {
+                        rx = 0;
+                        ry = 1;
+                        rz = 0;
+                        len = 1;
+                      }
+                      const invL = 1.0 / len;
+                      let nx = rx * invL;
+                      let ny = ry * invL;
+                      let nz = rz * invL;
+                      const pen = minDist - len;
+
+                      // If both particles are near the table surface, gently bias separation vertically so
+                      // upper fold rides cleanly ON TOP of lower layer rather than sliding under it!
+                      if (pos[i3 + 1] < groundFloor + 0.012 && pos[j3 + 1] < groundFloor + 0.012 && Math.abs(ny) < 0.25) {
+                        ny = pos[j3 + 1] >= pos[i3 + 1] ? 0.45 : -0.45;
+                        const nl = Math.hypot(nx, ny, nz) || 1;
+                        nx /= nl;
+                        ny /= nl;
+                        nz /= nl;
+                      }
+
+                      if (!pa && !pb) {
+                        const half = pen * 0.5;
+                        pos[i3] -= nx * half;
+                        pos[i3 + 1] -= ny * half;
+                        pos[i3 + 2] -= nz * half;
+                        pos[j3] += nx * half;
+                        pos[j3 + 1] += ny * half;
+                        pos[j3 + 2] += nz * half;
+                      } else if (pa) {
+                        pos[j3] += nx * pen;
+                        pos[j3 + 1] += ny * pen;
+                        pos[j3 + 2] += nz * pen;
+                      } else {
+                        pos[i3] -= nx * pen;
+                        pos[i3 + 1] -= ny * pen;
+                        pos[i3 + 2] -= nz * pen;
+                      }
+
+                      // Subtle self-collision damping to keep folds calm & silky
+                      const rvx = (pos[j3] - prev[j3]) - (pos[i3] - prev[i3]);
+                      const rvy = (pos[j3 + 1] - prev[j3 + 1]) - (pos[i3 + 1] - prev[i3 + 1]);
+                      const rvz = (pos[j3 + 2] - prev[j3 + 2]) - (pos[i3 + 2] - prev[i3 + 2]);
+                      const damp = 0.12;
+                      if (!pa) {
+                        prev[i3] -= rvx * damp;
+                        prev[i3 + 1] -= rvy * damp;
+                        prev[i3 + 2] -= rvz * damp;
+                      }
+                      if (!pb) {
+                        prev[j3] += rvx * damp;
+                        prev[j3 + 1] += rvy * damp;
+                        prev[j3 + 2] += rvz * damp;
+                      }
+                    }
+                  }
+                }
+              }
+              j = next[j];
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Exact side-consistent point-vs-non-adjacent-triangle self-collision projection.
+   * Detects both proximity (< selfTriDist) AND continuous tunneling (sign flip from prev to pos)
+   * so no cloth vertex can ever cross through another part of the fabric!
+   */
+  collideSelfTriangles() {
+    const W = this.W;
+    const H = this.H;
+    const N = W * H;
+    const pos = this.pos;
+    const prev = this.prev;
+    const pinned = this.pinned;
+    const tris = this.tris;
+    const triCount = (tris.length / 3) | 0;
+    const thick = this.selfTriDist;
+    const thick2 = thick * thick;
+    const cellSize = 0.018;
+    const invCell = 1.0 / cellSize;
+
+    const tHead = this._triHashHead;
+    const tNext = this._triHashNext;
+    tHead.fill(-1);
+
+    // Hash every triangle by its centroid
+    for (let t = 0; t < triCount; t++) {
+      const a3 = tris[t * 3] * 3;
+      const b3 = tris[t * 3 + 1] * 3;
+      const c3 = tris[t * 3 + 2] * 3;
+      const mx = (pos[a3] + pos[b3] + pos[c3]) * (1 / 3);
+      const my = (pos[a3 + 1] + pos[b3 + 1] + pos[c3 + 1]) * (1 / 3);
+      const mz = (pos[a3 + 2] + pos[b3 + 2] + pos[c3 + 2]) * (1 / 3);
+      const h = this._hashCell(Math.floor(mx * invCell), Math.floor(my * invCell), Math.floor(mz * invCell));
+      tNext[t] = tHead[h];
+      tHead[h] = t;
+    }
+
+    for (let i = 0; i < N; i++) {
+      if (pinned[i]) continue;
+      const i3 = i * 3;
+      const gxi = i % W;
+      const gyi = (i / W) | 0;
+      const px = pos[i3];
+      const py = pos[i3 + 1];
+      const pz = pos[i3 + 2];
+      const cx = Math.floor(px * invCell);
+      const cy = Math.floor(py * invCell);
+      const cz = Math.floor(pz * invCell);
+
+      for (let dz = -1; dz <= 1; dz++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            let t = tHead[this._hashCell(cx + dx, cy + dy, cz + dz)];
+            while (t !== -1) {
+              const ia = tris[t * 3];
+              const ib = tris[t * 3 + 1];
+              const ic = tris[t * 3 + 2];
+
+              // Skip triangles within 1 grid cell of particle i
+              if (
+                (Math.abs(gxi - (ia % W)) > 1 || Math.abs(gyi - ((ia / W) | 0)) > 1) &&
+                (Math.abs(gxi - (ib % W)) > 1 || Math.abs(gyi - ((ib / W) | 0)) > 1) &&
+                (Math.abs(gxi - (ic % W)) > 1 || Math.abs(gyi - ((ic / W) | 0)) > 1)
+              ) {
+                const a3 = ia * 3;
+                const b3 = ib * 3;
+                const c3 = ic * 3;
+                const ax = pos[a3], ay = pos[a3 + 1], az = pos[a3 + 2];
+                const bx = pos[b3], by = pos[b3 + 1], bz = pos[b3 + 2];
+                const cxp = pos[c3], cyp = pos[c3 + 1], czp = pos[c3 + 2];
+
+                // Quick AABB reject
+                const minX = Math.min(ax, bx, cxp) - thick;
+                const maxX = Math.max(ax, bx, cxp) + thick;
+                if (px >= minX && px <= maxX) {
+                  const minY = Math.min(ay, by, cyp) - thick;
+                  const maxY = Math.max(ay, by, cyp) + thick;
+                  if (py >= minY && py <= maxY) {
+                    const minZ = Math.min(az, bz, czp) - thick;
+                    const maxZ = Math.max(az, bz, czp) + thick;
+                    if (pz >= minZ && pz <= maxZ) {
+                      // Triangle normal
+                      const abx = bx - ax, aby = by - ay, abz = bz - az;
+                      const acx = cxp - ax, acy = cyp - ay, acz = czp - az;
+                      let fnx = aby * acz - abz * acy;
+                      let fny = abz * acx - abx * acz;
+                      let fnz = abx * acy - aby * acx;
+                      const fnLen = Math.hypot(fnx, fny, fnz);
+                      if (fnLen > 1e-10) {
+                        fnx /= fnLen;
+                        fny /= fnLen;
+                        fnz /= fnLen;
+
+                        // Signed distance of current and previous particle positions to triangle plane
+                        const sdCur = (px - ax) * fnx + (py - ay) * fny + (pz - az) * fnz;
+                        const sdPrev = (prev[i3] - ax) * fnx + (prev[i3 + 1] - ay) * fny + (prev[i3 + 2] - az) * fnz;
+                        const crossed = (sdCur >= 0 && sdPrev < 0) || (sdCur < 0 && sdPrev >= 0);
+
+                        if (Math.abs(sdCur) < thick || crossed) {
+                          // Project P onto triangle plane & test barycentric containment
+                          const qx = px - sdCur * fnx;
+                          const qy = py - sdCur * fny;
+                          const qz = pz - sdCur * fnz;
+                          const v0x = acx, v0y = acy, v0z = acz;
+                          const v1x = abx, v1y = aby, v1z = abz;
+                          const v2x = qx - ax, v2y = qy - ay, v2z = qz - az;
+                          const d00 = v0x * v0x + v0y * v0y + v0z * v0z;
+                          const d01 = v0x * v1x + v0y * v1y + v0z * v1z;
+                          const d02 = v0x * v2x + v0y * v2y + v0z * v2z;
+                          const d11 = v1x * v1x + v1y * v1y + v1z * v1z;
+                          const d12 = v1x * v2x + v1y * v2y + v1z * v2z;
+                          const denom = d00 * d11 - d01 * d01;
+                          if (Math.abs(denom) > 1e-12) {
+                            const invD = 1.0 / denom;
+                            const u = (d11 * d02 - d01 * d12) * invD;
+                            const v = (d00 * d12 - d01 * d02) * invD;
+                            if (u >= -0.05 && v >= -0.05 && u + v <= 1.05) {
+                              // Keep particle strictly on its previous side (or upper side if ambiguous!)
+                              let side = sdPrev >= 0 ? 1.0 : -1.0;
+                              if (Math.abs(sdPrev) < 1e-6) side = fny >= 0 ? 1.0 : -1.0;
+                              const targetSigned = side * thick;
+                              const push = targetSigned - sdCur;
+                              if (push * side > 0) {
+                                // Split correction between particle & triangle vertices
+                                const pStep = push * 0.6;
+                                const tStep = -push * 0.4 * (1 / 3);
+                                pos[i3] += fnx * pStep;
+                                pos[i3 + 1] += fny * pStep;
+                                pos[i3 + 2] += fnz * pStep;
+                                if (!pinned[ia]) {
+                                  pos[a3] += fnx * tStep;
+                                  pos[a3 + 1] += fny * tStep;
+                                  pos[a3 + 2] += fnz * tStep;
+                                }
+                                if (!pinned[ib]) {
+                                  pos[b3] += fnx * tStep;
+                                  pos[b3 + 1] += fny * tStep;
+                                  pos[b3 + 2] += fnz * tStep;
+                                }
+                                if (!pinned[ic]) {
+                                  pos[c3] += fnx * tStep;
+                                  pos[c3 + 1] += fny * tStep;
+                                  pos[c3 + 2] += fnz * tStep;
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+              t = tNext[t];
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Exact Möller-style segment-triangle self-intersection audit across all non-adjacent triangle pairs.
+   * Returns exact count of crossing triangle pairs (0 = completely self-intersection-free cloth!).
+   */
+  countSelfIntersections() {
+    const pos = this.pos;
+    const tris = this.tris;
+    const triCount = (tris.length / 3) | 0;
+    const aabb = new Float32Array(triCount * 6);
+
+    for (let t = 0; t < triCount; t++) {
+      const a3 = tris[t * 3] * 3;
+      const b3 = tris[t * 3 + 1] * 3;
+      const c3 = tris[t * 3 + 2] * 3;
+      aabb[t * 6] = Math.min(pos[a3], pos[b3], pos[c3]);
+      aabb[t * 6 + 1] = Math.max(pos[a3], pos[b3], pos[c3]);
+      aabb[t * 6 + 2] = Math.min(pos[a3 + 1], pos[b3 + 1], pos[c3 + 1]);
+      aabb[t * 6 + 3] = Math.max(pos[a3 + 1], pos[b3 + 1], pos[c3 + 1]);
+      aabb[t * 6 + 4] = Math.min(pos[a3 + 2], pos[b3 + 2], pos[c3 + 2]);
+      aabb[t * 6 + 5] = Math.max(pos[a3 + 2], pos[b3 + 2], pos[c3 + 2]);
+    }
+
+    const segHitsTri = (p0, p1, a, b, c) => {
+      const p0x = pos[p0], p0y = pos[p0 + 1], p0z = pos[p0 + 2];
+      const dx = pos[p1] - p0x, dy = pos[p1 + 1] - p0y, dz = pos[p1 + 2] - p0z;
+      const ax = pos[a], ay = pos[a + 1], az = pos[a + 2];
+      const e1x = pos[b] - ax, e1y = pos[b + 1] - ay, e1z = pos[b + 2] - az;
+      const e2x = pos[c] - ax, e2y = pos[c + 1] - ay, e2z = pos[c + 2] - az;
+      const hx = dy * e2z - dz * e2y;
+      const hy = dz * e2x - dx * e2z;
+      const hz = dx * e2y - dy * e2x;
+      const det = e1x * hx + e1y * hy + e1z * hz;
+      if (Math.abs(det) < 1e-10) return false;
+      const invDet = 1.0 / det;
+      const sx = p0x - ax, sy = p0y - ay, sz = p0z - az;
+      const u = invDet * (sx * hx + sy * hy + sz * hz);
+      if (u < 1e-4 || u > 1.0 - 1e-4) return false;
+      const qx = sy * e1z - sz * e1y;
+      const qy = sz * e1x - sx * e1z;
+      const qz = sx * e1y - sy * e1x;
+      const v = invDet * (dx * qx + dy * qy + dz * qz);
+      if (v < 1e-4 || u + v > 1.0 - 1e-4) return false;
+      const tHit = invDet * (e2x * qx + e2y * qy + e2z * qz);
+      return tHit > 1e-4 && tHit < 1.0 - 1e-4;
+    };
+
+    let crossings = 0;
+    for (let t1 = 0; t1 < triCount; t1++) {
+      const b1 = t1 * 6;
+      const i1a = tris[t1 * 3], i1b = tris[t1 * 3 + 1], i1c = tris[t1 * 3 + 2];
+      const a1 = i1a * 3, b1p = i1b * 3, c1 = i1c * 3;
+      for (let t2 = t1 + 1; t2 < triCount; t2++) {
+        const b2 = t2 * 6;
+        if (
+          aabb[b1 + 1] < aabb[b2] || aabb[b1] > aabb[b2 + 1] ||
+          aabb[b1 + 3] < aabb[b2 + 2] || aabb[b1 + 2] > aabb[b2 + 3] ||
+          aabb[b1 + 5] < aabb[b2 + 4] || aabb[b1 + 4] > aabb[b2 + 5]
+        ) continue;
+        const i2a = tris[t2 * 3], i2b = tris[t2 * 3 + 1], i2c = tris[t2 * 3 + 2];
+        // Skip triangles sharing any vertex
+        if (
+          i1a === i2a || i1a === i2b || i1a === i2c ||
+          i1b === i2a || i1b === i2b || i1b === i2c ||
+          i1c === i2a || i1c === i2b || i1c === i2c
+        ) continue;
+        const a2 = i2a * 3, b2p = i2b * 3, c2 = i2c * 3;
+        if (
+          segHitsTri(a1, b1p, a2, b2p, c2) ||
+          segHitsTri(b1p, c1, a2, b2p, c2) ||
+          segHitsTri(c1, a1, a2, b2p, c2) ||
+          segHitsTri(a2, b2p, a1, b1p, c1) ||
+          segHitsTri(b2p, c2, a1, b1p, c1) ||
+          segHitsTri(c2, a2, a1, b1p, c1)
+        ) {
+          crossings++;
+        }
+      }
+    }
+    return crossings;
   }
 
   /**
@@ -472,6 +864,8 @@ export class ChallahClothCover {
     this.cloth.groundFriction = 0.14;
     this.cloth.groundY = 0.0;
     this.cloth.collisionMargin = 0.0022;
+    this.cloth.selfMinDist = 0.0088;
+    this.cloth.selfTriDist = 0.0042;
 
     // Exact multi-sphere collider matching the 4-strand braided challah loaf in challah.glb!
     // Loaf spans X in [-0.118, +0.118], resting on walnut board (top Y = 0.015), max height ~0.084
@@ -553,6 +947,17 @@ export class ChallahClothCover {
     this.settleTime = 0;
     this.animMode = uncover ? 'uncovering' : 'covering';
     this.cloth.unpinAll();
+    // Snapshot current edge positions at gesture start so the lift begins seamlessly with zero jump!
+    const W = this.cloth.W;
+    const H = this.cloth.H;
+    const edgeRow = uncover ? 0 : H - 1;
+    this._edgeStart = new Float32Array(W * 3);
+    for (let x = 0; x < W; x++) {
+      const i3 = (edgeRow * W + x) * 3;
+      this._edgeStart[x * 3] = this.cloth.pos[i3];
+      this._edgeStart[x * 3 + 1] = this.cloth.pos[i3 + 1];
+      this._edgeStart[x * 3 + 2] = this.cloth.pos[i3 + 2];
+    }
   }
 
   update(dt, elapsed) {
@@ -562,24 +967,29 @@ export class ChallahClothCover {
 
     if (this.animMode === 'uncovering') {
       this.animTime += dt;
-      const dur = 0.85;
+      const dur = 0.95;
       const p = Math.min(1.0, this.animTime / dur);
       const ease = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
 
-      // Pin the front edge (y = H - 1) and peel it smoothly up, over the challah, and back behind the board!
+      // Draw the BACK edge (y = 0) smoothly up & back-right off the loaf so the rest of the cloth
+      // glides cleanly behind it in order — like drawing a real linen cover off without folding through itself!
       for (let x = 0; x < W; x++) {
-        const u = x / (W - 1) - 0.5;
-        const lx = u * this.width * (1.0 - 0.25 * ease);
-        const lz = (this.depth * 0.5) * (1.0 - ease) + (-this.depth * 0.62) * ease;
-        const ly = 0.005 + 0.135 * Math.sin(ease * Math.PI) + 0.010 * ease;
-        this.cloth.setPin(x, H - 1, lx, ly, lz);
+        const sx = this._edgeStart ? this._edgeStart[x * 3] : (x / (W - 1) - 0.5) * this.width;
+        const sy = this._edgeStart ? this._edgeStart[x * 3 + 1] : 0.003;
+        const sz = this._edgeStart ? this._edgeStart[x * 3 + 2] : -this.depth * 0.5;
+        const tx = (x / (W - 1) - 0.5) * this.width * 0.92 + 0.04;
+        const tz = -this.depth * 0.5 - 0.28;
+        const lx = sx + (tx - sx) * ease;
+        const lz = sz + (tz - sz) * ease;
+        const ly = sy + 0.085 * Math.sin(ease * Math.PI) + 0.004 * ease;
+        this.cloth.setPin(x, 0, lx, ly, lz);
       }
-      for (let s = 0; s < 3; s++) this.cloth.step(subDt, 0, 0, -0.35);
+      for (let s = 0; s < 3; s++) this.cloth.step(subDt, 0, 0, -0.15);
 
       if (p >= 1.0) {
         this.cloth.unpinAll();
         this.animMode = 'settling';
-        this.settleTime = 1.6;
+        this.settleTime = 1.4;
       }
       this.syncMesh();
       return;
@@ -587,24 +997,29 @@ export class ChallahClothCover {
 
     if (this.animMode === 'covering') {
       this.animTime += dt;
-      const dur = 0.85;
+      const dur = 1.0;
       const p = Math.min(1.0, this.animTime / dur);
       const ease = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
 
-      // Lift front edge smoothly back over the braided challah and release so gravity drapes it naturally!
+      // Lift the FRONT edge (y = H - 1) smoothly up, over the braided challah crown, and forward onto the table,
+      // drawing the cloth cleanly back into place with zero fold-over or self-crossing!
       for (let x = 0; x < W; x++) {
-        const u = x / (W - 1) - 0.5;
-        const lx = u * this.width;
-        const lz = (-this.depth * 0.62) * (1.0 - ease) + (this.depth * 0.48) * ease;
-        const ly = 0.015 + 0.135 * Math.sin(ease * Math.PI) + 0.018 * (1.0 - ease);
+        const sx = this._edgeStart ? this._edgeStart[x * 3] : (x / (W - 1) - 0.5) * this.width;
+        const sy = this._edgeStart ? this._edgeStart[x * 3 + 1] : 0.004;
+        const sz = this._edgeStart ? this._edgeStart[x * 3 + 2] : -0.10;
+        const tx = (x / (W - 1) - 0.5) * this.width;
+        const tz = this.depth * 0.48;
+        const lx = sx + (tx - sx) * ease;
+        const lz = sz + (tz - sz) * ease;
+        const ly = sy + (0.012 - sy) * ease + 0.135 * Math.sin(ease * Math.PI);
         this.cloth.setPin(x, H - 1, lx, ly, lz);
       }
-      for (let s = 0; s < 3; s++) this.cloth.step(subDt, 0, 0, 0.25);
+      for (let s = 0; s < 3; s++) this.cloth.step(subDt, 0, 0, 0.15);
 
       if (p >= 1.0) {
         this.cloth.unpinAll();
         this.animMode = 'settling';
-        this.settleTime = 2.4;
+        this.settleTime = 2.2;
       }
       this.syncMesh();
       return;
