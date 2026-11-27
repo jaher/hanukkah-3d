@@ -1002,8 +1002,414 @@ def build_table_accents_and_stars():
     print("[food_ritual] all exports complete.")
 
 
+def build_latkes():
+    """Build photorealistic crispy golden-brown Hanukkah latkes (potato pancakes) on a porcelain plate,
+    served alongside a small bowl of swirled sour cream with fresh chives and a small bowl of spiced applesauce."""
+    reset_scene()
+
+    mat_plate = make_pbr_material(
+        "LatkesPorcelainPlate",
+        metallic=0.02,
+        roughness=0.14,
+        coat=0.78,
+        coat_roughness=0.05,
+        color_tex_path=os.path.join(TEXTURES_DIR, "platter_albedo.jpg"),
+    )
+    mat_bowl = make_pbr_material(
+        "CondimentBowlCeramic",
+        base_color=(0.95, 0.96, 0.98, 1.0),
+        metallic=0.02,
+        roughness=0.12,
+        coat=0.82,
+        coat_roughness=0.04,
+    )
+    mat_bowl_rim = make_pbr_material(
+        "CondimentBowlCobaltRim",
+        base_color=(0.08, 0.20, 0.52, 1.0),
+        metallic=0.05,
+        roughness=0.16,
+        coat=0.80,
+    )
+    mat_latke = make_pbr_material(
+        "CrispyPotatoLatke",
+        metallic=0.0,
+        roughness=0.42,
+        specular=0.58,
+        coat=0.32,             # warm pan-fried oil sheen catching candlelight!
+        coat_roughness=0.22,
+        color_tex_path=os.path.join(TEXTURES_DIR, "latke_albedo.jpg"),
+        rough_tex_path=os.path.join(TEXTURES_DIR, "latke_rough.jpg"),
+        bump_tex_path=os.path.join(TEXTURES_DIR, "latke_normal.png"),
+        bump_strength=1.45,
+    )
+    mat_sour_cream = make_pbr_material(
+        "ThickSourCream",
+        base_color=(0.98, 0.96, 0.90, 1.0),
+        metallic=0.0,
+        roughness=0.26,
+        coat=0.42,
+        coat_roughness=0.16,
+    )
+    mat_chive = make_pbr_material(
+        "FreshGreenChives",
+        base_color=(0.14, 0.44, 0.12, 1.0),
+        metallic=0.0,
+        roughness=0.55,
+    )
+    mat_applesauce = make_pbr_material(
+        "SpicedApplesauce",
+        metallic=0.0,
+        roughness=0.20,
+        coat=0.72,
+        coat_roughness=0.10,
+        color_tex_path=os.path.join(TEXTURES_DIR, "applesauce_albedo.jpg"),
+        bump_tex_path=os.path.join(TEXTURES_DIR, "applesauce_normal.png"),
+        bump_strength=0.85,
+    )
+    mat_spoon = make_pbr_material(
+        "CondimentSilverSpoon",
+        base_color=(0.94, 0.96, 0.98, 1.0),
+        metallic=0.98,
+        roughness=0.14,
+    )
+
+    # 1. Blue-and-white scalloped porcelain serving plate (20.6 cm diameter, centered at (0, 0, 0))
+    plate_prof = [
+        (0.068, 0.000),
+        (0.075, 0.002),
+        (0.088, 0.007),
+        (0.102, 0.014),
+        (0.105, 0.016),
+        (0.101, 0.017),
+        (0.082, 0.010),
+        (0.064, 0.0072),
+        (0.003, 0.0068),
+    ]
+    plate = create_lathe_mesh(
+        "Latkes_Plate",
+        plate_prof,
+        segments=64,
+        cap_bottom=True,
+        cap_top=True,
+        flute_amp=0.0014,
+        flute_count=20,
+        flute_z_range=(0.012, 0.0175),
+        mat=mat_plate,
+    )
+    bm_p = bmesh.new()
+    bm_p.from_mesh(plate.data)
+    uv_p = bm_p.loops.layers.uv.new("UVMap")
+    for f in bm_p.faces:
+        for loop in f.loops:
+            v = loop.vert.co
+            loop[uv_p].uv = (0.5 + v.x / 0.214, 0.5 + v.y / 0.214)
+    bm_p.to_mesh(plate.data)
+    bm_p.free()
+
+    # 2. Build 6 organic, craggy, freshly fried shredded-potato latkes with lacy crispy edges!
+    def make_latke_mesh(name, radius, thick, seed):
+        rng = random.Random(seed)
+        r_rings = 9
+        segs = 56
+        bm = bmesh.new()
+        uv_l = bm.loops.layers.uv.new("UVMap")
+
+        # Organic craggy scalloped fried-potato silhouette (no spiky tentacles — crisp lace ridges!)
+        def edge_wobble(ang):
+            return (
+                1.0
+                + 0.055 * math.sin(3 * ang + seed * 1.1)
+                + 0.044 * math.cos(5 * ang - seed * 0.7)
+                + 0.036 * math.sin(11 * ang + seed * 2.3)
+                + 0.028 * math.cos(17 * ang + seed * 0.4)
+                + 0.020 * math.sin(25 * ang - seed * 1.9)
+            )
+
+        def surf_bump(x, y, s):
+            return (
+                0.0013 * math.sin(x * 165.0 + y * 90.0 + s)
+                + 0.0010 * math.cos(x * 110.0 - y * 195.0 - s * 1.7)
+                + 0.0007 * math.sin((x + y) * 260.0 + s * 2.4)
+            )
+
+        top_rings = []
+        bot_rings = []
+        for r_i in range(1, r_rings + 1):
+            frac = r_i / r_rings
+            # Crisp tapered pillow cross-section (thick puffy center -> thin crunchy browned lace edge!)
+            h_prof = math.sqrt(max(0.02, 1.0 - (frac ** 2.15)))
+            tr = []
+            br = []
+            for s_i in range(segs):
+                ang = math.tau * s_i / segs
+                wob = edge_wobble(ang) if frac > 0.35 else (1.0 + 0.3 * (edge_wobble(ang) - 1.0))
+                rr = radius * frac * wob
+                vx = rr * math.cos(ang)
+                vy = rr * math.sin(ang)
+                bmp = surf_bump(vx, vy, seed) * (0.55 + 0.45 * frac)
+                zt = thick * (0.50 + 0.50 * h_prof) + bmp
+                zb = thick * (0.50 - 0.50 * h_prof) * 0.65 - abs(bmp) * 0.3
+                if r_i == r_rings:
+                    # Crispy lacy edge slightly undulating upward/downward like real fried shreds
+                    zt = thick * 0.34 + 0.0014 * math.sin(13 * ang + seed)
+                    zb = zt - 0.0022
+                tr.append(bm.verts.new((vx, vy, max(0.001, zt))))
+                br.append(bm.verts.new((vx, vy, max(0.0, zb))))
+            top_rings.append(tr)
+            bot_rings.append(br)
+
+        c_top = bm.verts.new((0.0, 0.0, thick + surf_bump(0.0, 0.0, seed)))
+        c_bot = bm.verts.new((0.0, 0.0, 0.0))
+
+        # Center fans
+        for s_i in range(segs):
+            sn = (s_i + 1) % segs
+            bm.faces.new((c_top, top_rings[0][s_i], top_rings[0][sn]))
+            bm.faces.new((c_bot, bot_rings[0][sn], bot_rings[0][s_i]))
+
+        # Concentric quads top & bottom
+        for r_i in range(len(top_rings) - 1):
+            for s_i in range(segs):
+                sn = (s_i + 1) % segs
+                bm.faces.new((top_rings[r_i][s_i], top_rings[r_i + 1][s_i], top_rings[r_i + 1][sn], top_rings[r_i][sn]))
+                bm.faces.new((bot_rings[r_i][sn], bot_rings[r_i + 1][sn], bot_rings[r_i + 1][s_i], bot_rings[r_i][s_i]))
+
+        # Outer crispy rim band
+        for s_i in range(segs):
+            sn = (s_i + 1) % segs
+            bm.faces.new((top_rings[-1][s_i], bot_rings[-1][s_i], bot_rings[-1][sn], top_rings[-1][sn]))
+
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+        for f in bm.faces:
+            for loop in f.loops:
+                v = loop.vert.co
+                u_c = 0.5 + (v.x / (radius * 2.22))
+                v_c = 0.5 + (v.y / (radius * 2.22))
+                loop[uv_l].uv = (max(0.02, min(0.98, u_c)), max(0.02, min(0.98, v_c)))
+
+        m = bpy.data.meshes.new(name)
+        bm.to_mesh(m)
+        bm.free()
+        obj = bpy.data.objects.new(name, m)
+        bpy.context.collection.objects.link(obj)
+        set_smooth(obj, 42.0)
+        obj.data.materials.append(mat_latke)
+
+        # Subtle flat tangential crispy potato shreds hugging the browned perimeter (no radial spikes!)
+        parts_l = [obj]
+        for k in range(14):
+            ang = math.tau * k / 14.0 + rng.uniform(-0.18, 0.18)
+            rr_base = radius * edge_wobble(ang) * rng.uniform(0.90, 0.99)
+            # Run TANGENTIALLY along the crispy rim (ang + pi/2) so shreds curve around the latke edge naturally!
+            tang = ang + (math.pi * 0.5) + rng.uniform(-0.32, 0.32)
+            p0 = Vector((rr_base * math.cos(ang), rr_base * math.sin(ang), thick * rng.uniform(0.32, 0.52)))
+            p1 = p0 + Vector((math.cos(tang) * 0.0045, math.sin(tang) * 0.0045, rng.uniform(-0.0006, 0.0008)))
+            p2 = p1 + Vector((math.cos(tang + 0.25) * 0.0038, math.sin(tang + 0.25) * 0.0038, rng.uniform(-0.0008, 0.0006)))
+            shred = create_tube_along_points(f"{name}_Shred_{k}", [p0, p1, p2], radii=[0.0014, 0.0012, 0.0006], radial_segs=5, mat=mat_latke)
+            bm_sh = bmesh.new()
+            bm_sh.from_mesh(shred.data)
+            uv_sh = bm_sh.loops.layers.uv.new("UVMap")
+            for f in bm_sh.faces:
+                for loop in f.loops:
+                    loop[uv_sh].uv = (0.91, 0.50)
+            bm_sh.to_mesh(shred.data)
+            bm_sh.free()
+            parts_l.append(shred)
+
+        return join_objects(parts_l, name)
+
+    # Helper for optional interactive sour-cream / applesauce dollop meshes sitting on top of each latke
+    def make_dollop(name, mat, scale_r=0.015, height=0.009, with_chives=False):
+        bm_d = bmesh.new()
+        bmesh.ops.create_uvsphere(bm_d, u_segments=20, v_segments=12, radius=scale_r)
+        uv_d = bm_d.loops.layers.uv.new("UVMap")
+        for v in bm_d.verts:
+            ang = math.atan2(v.co.y, v.co.x)
+            r_xy = math.hypot(v.co.x, v.co.y) / scale_r
+            swirl = 1.0 + 0.09 * math.sin(3.0 * ang + r_xy * 4.0)
+            v.co.x *= swirl
+            v.co.y *= swirl
+            if v.co.z < 0:
+                v.co.z *= 0.20
+            else:
+                # Soft swirled peak on sour cream
+                v.co.z = (v.co.z / scale_r) * height * (1.0 + 0.18 * math.exp(-r_xy * 3.0))
+        for f in bm_d.faces:
+            for loop in f.loops:
+                v = loop.vert.co
+                loop[uv_d].uv = (0.5 + v.x / (scale_r * 2.4), 0.5 + v.y / (scale_r * 2.4))
+        md = bpy.data.meshes.new(name)
+        bm_d.to_mesh(md)
+        bm_d.free()
+        d_obj = bpy.data.objects.new(name, md)
+        bpy.context.collection.objects.link(d_obj)
+        set_smooth(d_obj, 55.0)
+        d_obj.data.materials.append(mat)
+        d_parts = [d_obj]
+        if with_chives:
+            crng = random.Random(hash(name) & 0xFFFF)
+            for k in range(7):
+                a = crng.uniform(0, math.tau)
+                rr = crng.uniform(0.002, scale_r * 0.65)
+                cx_c, cy_c = rr * math.cos(a), rr * math.sin(a)
+                cz_c = height * math.sqrt(max(0.05, 1.0 - (rr / scale_r) ** 2)) + 0.0005
+                ca = crng.uniform(0, math.tau)
+                pts_c = [
+                    Vector((cx_c - math.cos(ca) * 0.0024, cy_c - math.sin(ca) * 0.0024, cz_c)),
+                    Vector((cx_c + math.cos(ca) * 0.0024, cy_c + math.sin(ca) * 0.0024, cz_c)),
+                ]
+                d_parts.append(create_tube_along_points(f"{name}_Chive_{k}", pts_c, radii=0.0007, radial_segs=5, mat=mat_chive))
+        return join_objects(d_parts, name)
+
+    # 6 appetizingly shingled / stacked golden latkes on the porcelain plate!
+    latke_specs = [
+        # (x, y, z, radius, thick, (rx, ry, rz), seed)
+        (-0.036,  0.024, 0.0075, 0.041, 0.0125, ( 0.02, -0.02, 0.4), 101),
+        ( 0.034,  0.026, 0.0075, 0.042, 0.0125, (-0.02,  0.03, 1.9), 102),
+        (-0.032, -0.028, 0.0075, 0.041, 0.0125, ( 0.03,  0.02, 2.7), 103),
+        ( 0.036, -0.024, 0.0075, 0.040, 0.0125, (-0.03, -0.02, 0.8), 104),
+        (-0.012,  0.006, 0.0195, 0.042, 0.0130, ( 0.06, -0.08, 1.2), 105),
+        ( 0.018, -0.008, 0.0285, 0.041, 0.0130, (-0.08,  0.07, 3.6), 106),
+    ]
+    for idx, (lx, ly, lz, lr, lt, lrot, lsd) in enumerate(latke_specs, start=1):
+        l_obj = make_latke_mesh(f"Latke_{idx}", lr, lt, lsd)
+        l_obj.location = (lx, ly, lz)
+        l_obj.rotation_euler = lrot
+
+        # Interactive topping dollops positioned right on top of each latke (hidden by default in Three.js until bowl clicked!)
+        sc_top = make_dollop(f"Latke_{idx}_SourCream", mat_sour_cream, scale_r=0.014, height=0.0085, with_chives=True)
+        sc_top.location = (lx, ly, lz + lt * 0.92)
+        sc_top.rotation_euler = lrot
+
+        ap_top = make_dollop(f"Latke_{idx}_Applesauce", mat_applesauce, scale_r=0.015, height=0.0075, with_chives=False)
+        ap_top.location = (lx, ly, lz + lt * 0.90)
+        ap_top.rotation_euler = lrot
+
+    # 3. Helper to build matching glazed porcelain condiment ramekin bowls + tiny sterling silver spoon!
+    def build_condiment_bowl(group_name, bx, by, fill_type):
+        b_parts = []
+        # Glazed porcelain ramekin bowl (r = 0.034 m, h = 0.028 m)
+        bowl_prof = [
+            (0.020, 0.000),
+            (0.023, 0.002),
+            (0.030, 0.010),
+            (0.034, 0.022),
+            (0.035, 0.027),
+            (0.032, 0.028),
+            (0.030, 0.025),
+            (0.026, 0.012),
+            (0.018, 0.005),
+            (0.001, 0.0045),
+        ]
+        b_mesh = create_lathe_mesh(group_name + "_Ceramic", bowl_prof, segments=44, cap_bottom=True, cap_top=True, mat=mat_bowl)
+        b_parts.append(b_mesh)
+        # Cobalt accent rim stripe around bowl top
+        rim_pts = [Vector((0.0342 * math.cos(math.tau * i / 48), 0.0342 * math.sin(math.tau * i / 48), 0.0262)) for i in range(49)]
+        b_parts.append(create_tube_along_points(group_name + "_Rim", rim_pts, radii=0.0014, radial_segs=8, cap_ends=False, mat=mat_bowl_rim))
+
+        # Sculpted condiment filling (swirled sour cream + fresh green chives OR glossy chunky cinnamon applesauce!)
+        bm_f = bmesh.new()
+        uv_f = bm_f.loops.layers.uv.new("UVMap")
+        r_steps, a_steps = 8, 40
+        rings_f = []
+        base_z = 0.0215
+        for ri in range(1, r_steps + 1):
+            frac = ri / r_steps
+            rr = 0.0302 * frac
+            ring = []
+            for ai in range(a_steps):
+                ang = math.tau * ai / a_steps
+                if fill_type == "sour_cream":
+                    # Creamy swirled vortex peak in center!
+                    swirl_h = 0.0068 * math.exp(-(frac ** 1.6) * 2.8) + 0.0016 * math.sin(3.0 * ang - frac * 7.5) * (1.0 - frac * 0.6)
+                    z_f = base_z + swirl_h - 0.0015 * (frac ** 2)
+                else:
+                    # Chunky glistening golden applesauce dome!
+                    chunk_h = (
+                        0.0042 * (1.0 - frac * frac)
+                        + 0.0013 * math.sin(5.0 * ang + frac * 6.0) * (1.0 - 0.4 * frac)
+                        + 0.0009 * math.cos(9.0 * ang - frac * 9.0)
+                    )
+                    z_f = base_z + chunk_h - 0.0010 * (frac ** 2)
+                ring.append(bm_f.verts.new((rr * math.cos(ang), rr * math.sin(ang), z_f)))
+            rings_f.append(ring)
+        c_f = bm_f.verts.new((0.0, 0.0, base_z + (0.0085 if fill_type == "sour_cream" else 0.0052)))
+        for ai in range(a_steps):
+            an = (ai + 1) % a_steps
+            bm_f.faces.new((c_f, rings_f[0][ai], rings_f[0][an]))
+        for ri in range(len(rings_f) - 1):
+            for ai in range(a_steps):
+                an = (ai + 1) % a_steps
+                bm_f.faces.new((rings_f[ri][ai], rings_f[ri + 1][ai], rings_f[ri + 1][an], rings_f[ri][an]))
+        bmesh.ops.recalc_face_normals(bm_f, faces=bm_f.faces)
+        for f in bm_f.faces:
+            for loop in f.loops:
+                v = loop.vert.co
+                loop[uv_f].uv = (0.5 + v.x / 0.064, 0.5 + v.y / 0.064)
+        mf = bpy.data.meshes.new(group_name + "_Fill")
+        bm_f.to_mesh(mf)
+        bm_f.free()
+        f_obj = bpy.data.objects.new(group_name + "_Fill", mf)
+        bpy.context.collection.objects.link(f_obj)
+        set_smooth(f_obj, 55.0)
+        f_obj.data.materials.append(mat_sour_cream if fill_type == "sour_cream" else mat_applesauce)
+        b_parts.append(f_obj)
+
+        # Fresh finely chopped green chive rings sprinkled across the swirled sour cream!
+        if fill_type == "sour_cream":
+            crng = random.Random(420)
+            for k in range(22):
+                a = crng.uniform(0, math.tau)
+                rr = (crng.random() ** 0.6) * 0.021
+                cx_c, cy_c = rr * math.cos(a), rr * math.sin(a)
+                frac = rr / 0.0302
+                cz_c = base_z + 0.0068 * math.exp(-(frac ** 1.6) * 2.8) + 0.0012
+                ca = crng.uniform(0, math.tau)
+                pts_c = [
+                    Vector((cx_c - math.cos(ca) * 0.0028, cy_c - math.sin(ca) * 0.0028, cz_c)),
+                    Vector((cx_c + math.cos(ca) * 0.0028, cy_c + math.sin(ca) * 0.0028, cz_c)),
+                ]
+                b_parts.append(create_tube_along_points(f"{group_name}_Chive_{k}", pts_c, radii=0.0008, radial_segs=5, mat=mat_chive))
+
+        # Delicate sterling silver condiment spoon resting naturally in the bowl!
+        s_dir = -1.0 if bx < 0 else 1.0
+        sp_pts = [
+            Vector((s_dir * 0.008, -0.004, 0.022)),
+            Vector((s_dir * 0.026, -0.006, 0.031)),
+            Vector((s_dir * 0.044, -0.008, 0.042)),
+            Vector((s_dir * 0.056, -0.009, 0.049)),
+        ]
+        b_parts.append(create_tube_along_points(group_name + "_Spoon", sp_pts, radii=[0.0028, 0.0018, 0.0022, 0.0036], radial_segs=10, mat=mat_spoon))
+
+        joined = join_objects(b_parts, group_name)
+        joined.location = (bx, by, 0.0)
+        return joined
+
+    # Place Sour Cream bowl on the left & Spiced Applesauce bowl on the right beside the latkes plate!
+    build_condiment_bowl("SourCream_Bowl", -0.132, 0.048, "sour_cream")
+    build_condiment_bowl("Applesauce_Bowl", 0.132, 0.048, "applesauce")
+
+    export_glb(os.path.join(MODELS_DIR, "latkes.glb"))
+
+    # Hide optional interactive topping dollops for clean preview of freshly fried latkes + side bowls!
+    for o in bpy.data.objects:
+        if o.name.endswith("_SourCream") or o.name.endswith("_Applesauce"):
+            o.hide_render = True
+    render_previews(
+        "latkes",
+        views=[
+            ("three_quarter", (0.04, -0.34, 0.22), 50.0),
+            ("top", (0.0, -0.08, 0.38), 52.0),
+        ],
+        target=(0.0, 0.01, 0.02),
+        res=(640, 512),
+        samples=36,
+    )
+
+
 def main():
     build_sufganiyot()
+    build_latkes()
     build_kiddush_cup()
     build_challah_and_cover()
     build_table_accents_and_stars()

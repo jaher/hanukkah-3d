@@ -784,12 +784,145 @@ def generate_curtain_textile_textures():
     save_img(Image.fromarray((rough * 255).astype(np.uint8)).resize((512, 512), Image.Resampling.LANCZOS), "curtain_rough.jpg", quality=85)
 
 
+def generate_latkes_textures():
+    """Generate photorealistic shredded-potato crispy latke PBR maps (albedo, normal, roughness)
+    plus chunky golden cinnamon applesauce PBR maps."""
+    rng = np.random.default_rng(108)
+    py_rng = random.Random(108)
+
+    # 1. Crispy Shredded-Potato Latke (1024x1024 circular UV layout — golden center, dark crispy lace rim!)
+    w, h = 1024, 1024
+    base = Image.new("RGB", (w, h), (168, 108, 38))
+    h_img = Image.new("L", (w, h), 110)
+    r_img = Image.new("L", (w, h), 158)  # matte potato baseline, raised crispy shreds get shiny oil sheen!
+
+    d_col = ImageDraw.Draw(base)
+    d_h = ImageDraw.Draw(h_img)
+    d_r = ImageDraw.Draw(r_img)
+
+    cx, cy = w * 0.5, h * 0.5
+
+    # Warm toasted golden-brown radial vignette base (rich golden-amber center -> deep crispy caramelized edge!)
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    rad = np.sqrt(((xx - cx) / (w * 0.48)) ** 2 + ((yy - cy) / (h * 0.48)) ** 2)
+    edge_brown = np.clip((rad - 0.45) / 0.55, 0.0, 1.0) ** 1.25
+    base_arr = np.zeros((h, w, 3), dtype=np.float32)
+    base_arr[:, :, 0] = 186 - 88 * edge_brown + rng.normal(0, 8, (h, w))
+    base_arr[:, :, 1] = 114 - 72 * edge_brown + rng.normal(0, 6, (h, w))
+    base_arr[:, :, 2] = 36 - 26 * edge_brown + rng.normal(0, 4, (h, w))
+    base = Image.fromarray(np.clip(base_arr, 0, 255).astype(np.uint8))
+    d_col = ImageDraw.Draw(base)
+
+    # Layer 2,200 chunky overlapping shredded-potato ribbons (clearly legible golden & crispy toasted brown strands!)
+    for k in range(2200):
+        rr = (py_rng.random() ** 0.56) * (w * 0.47)
+        ang_p = py_rng.uniform(0, math.tau)
+        sx = cx + rr * math.cos(ang_p)
+        sy = cy + rr * math.sin(ang_p)
+        dir_a = py_rng.uniform(0, math.tau)
+        length = py_rng.uniform(28, 78)
+        curve = py_rng.uniform(-14, 14)
+        thick = py_rng.randint(5, 11)
+
+        p0 = (sx - math.cos(dir_a) * length * 0.5, sy - math.sin(dir_a) * length * 0.5)
+        pm = (sx - math.sin(dir_a) * curve, sy + math.cos(dir_a) * curve)
+        p1 = (sx + math.cos(dir_a) * length * 0.5, sy + math.sin(dir_a) * length * 0.5)
+
+        dist_norm = rr / (w * 0.47)
+        brown_t = min(1.0, max(0.0, dist_norm * 0.78 + py_rng.uniform(-0.20, 0.36)))
+        if k > 1750 and py_rng.random() < 0.42:
+            # Deeply caramelized crispy chestnut-brown potato shreds on top!
+            col = (
+                py_rng.randint(86, 128),
+                py_rng.randint(38, 64),
+                py_rng.randint(10, 22),
+            )
+            hv = py_rng.randint(210, 252)
+            rv = py_rng.randint(44, 78)
+        else:
+            # Rich freshly-fried golden-amber shredded potato
+            r_c = int(214 - 108 * brown_t + py_rng.randint(-12, 12))
+            g_c = int(146 - 98 * brown_t + py_rng.randint(-10, 10))
+            b_c = int(54 - 44 * brown_t + py_rng.randint(-6, 6))
+            col = (max(32, min(238, r_c)), max(16, min(185, g_c)), max(6, min(92, b_c)))
+            hv = int(125 + 115 * (k / 2200.0) + py_rng.randint(-18, 18))
+            hv = max(55, min(252, hv))
+            rv = py_rng.randint(58, 118)
+
+        # Dark toasted crevice shadow under each shred + bright golden-brown shred on top!
+        sh_col = (max(18, col[0] - 62), max(8, col[1] - 46), max(3, col[2] - 24))
+        pts_sh = [(p[0] + 2, p[1] + 2) for p in (p0, pm, p1)]
+        d_col.line(pts_sh, fill=sh_col, width=thick + 2, joint="curve")
+        d_col.line([p0, pm, p1], fill=col, width=thick, joint="curve")
+        d_h.line(pts_sh, fill=max(20, hv - 75), width=thick + 2, joint="curve")
+        d_h.line([p0, pm, p1], fill=hv, width=thick, joint="curve")
+        d_r.line([p0, pm, p1], fill=rv, width=thick, joint="curve")
+
+    # Tiny caramelized onion bits & freshly cracked black pepper flecks
+    for _ in range(180):
+        rr = (py_rng.random() ** 0.55) * (w * 0.42)
+        ang_p = py_rng.uniform(0, math.tau)
+        px = cx + rr * math.cos(ang_p)
+        py = cy + rr * math.sin(ang_p)
+        rad_f = py_rng.uniform(1.5, 3.2)
+        d_col.ellipse([px - rad_f, py - rad_f, px + rad_f, py + rad_f], fill=(56, 28, 12))
+
+    # Glistening tiny oil droplets / crispy fried bubbles catching highlights
+    for _ in range(260):
+        rr = (py_rng.random() ** 0.55) * (w * 0.44)
+        ang_p = py_rng.uniform(0, math.tau)
+        px = cx + rr * math.cos(ang_p)
+        py = cy + rr * math.sin(ang_p)
+        rad_b = py_rng.uniform(2.5, 6.0)
+        d_r.ellipse([px - rad_b, py - rad_b, px + rad_b, py + rad_b], fill=py_rng.randint(36, 64))
+        d_h.ellipse([px - rad_b, py - rad_b, px + rad_b, py + rad_b], fill=py_rng.randint(210, 250))
+
+    h_img = h_img.filter(ImageFilter.GaussianBlur(0.8))
+    r_img = r_img.filter(ImageFilter.GaussianBlur(1.1))
+    save_img(base, "latke_albedo.jpg", quality=92)
+    save_height_as_normal_map(h_img.resize((512, 512), Image.Resampling.LANCZOS), "latke_normal.png", strength=5.0)
+    save_img(r_img.resize((512, 512), Image.Resampling.LANCZOS), "latke_rough.jpg", quality=86)
+
+    # 2. Chunky Golden-Cinnamon Applesauce (512x512)
+    aw, ah = 512, 512
+    a_arr = np.zeros((ah, aw, 3), dtype=np.float32)
+    # Chunky warm golden-amber applesauce base
+    y_a = np.linspace(0, 1, ah)[:, None]
+    x_a = np.linspace(0, 1, aw)[None, :]
+    chunk = (
+        0.5
+        + 0.25 * np.sin(x_a * 42.0 + np.sin(y_a * 31.0) * 1.8)
+        + 0.25 * np.cos(y_a * 47.0 - np.sin(x_a * 37.0) * 1.6)
+    )
+    fine = rng.normal(0.0, 0.06, (ah, aw)).astype(np.float32)
+    a_arr[:, :, 0] = np.clip(198 + 26 * (chunk - 0.5) + fine * 50, 130, 238)
+    a_arr[:, :, 1] = np.clip(138 + 24 * (chunk - 0.5) + fine * 42, 82, 185)
+    a_arr[:, :, 2] = np.clip(48 + 14 * (chunk - 0.5) + fine * 24, 20, 88)
+    apple_img = Image.fromarray(a_arr.astype(np.uint8))
+    da = ImageDraw.Draw(apple_img)
+    ah_img = Image.fromarray(np.clip((0.5 + 0.35 * (chunk - 0.5) + fine) * 255, 0, 255).astype(np.uint8))
+    dah = ImageDraw.Draw(ah_img)
+    # Soft chunky apple bits + warm cinnamon spice flecks
+    for _ in range(340):
+        px, py = py_rng.randint(8, aw - 8), py_rng.randint(8, ah - 8)
+        rr = py_rng.uniform(3, 9)
+        da.ellipse([px - rr, py - rr, px + rr, py + rr], fill=(py_rng.randint(188, 222), py_rng.randint(128, 162), py_rng.randint(42, 68)))
+        dah.ellipse([px - rr, py - rr, px + rr, py + rr], fill=py_rng.randint(155, 225))
+    for _ in range(280):
+        px, py = py_rng.randint(10, aw - 10), py_rng.randint(10, ah - 10)
+        rr = py_rng.uniform(1.0, 2.2)
+        da.ellipse([px - rr, py - rr, px + rr, py + rr], fill=(98, 46, 18))
+    save_img(apple_img.filter(ImageFilter.GaussianBlur(0.5)), "applesauce_albedo.jpg", quality=90)
+    save_height_as_normal_map(ah_img.filter(ImageFilter.GaussianBlur(1.2)), "applesauce_normal.png", strength=2.6)
+
+
 def main():
     generate_wood_textures()
     generate_textile_textures()
     generate_curtain_textile_textures()
     generate_dreidel_and_gelt_textures()
     generate_food_and_ceramic_textures()
+    generate_latkes_textures()
     generate_carved_silver_textures()
     # Preserve the photorealistic winter_night_backdrop.jpg if already installed
     if not os.path.exists(os.path.join(TEXTURES_DIR, "winter_night_backdrop.jpg")):

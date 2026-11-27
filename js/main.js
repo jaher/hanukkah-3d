@@ -11,16 +11,16 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { GatedAssetLoader } from './asset-loader.js?v=20261127-2';
-import { computeHanukkahNight, HANUKKAH_2026_NIGHT_DATES } from './hanukkah-calendar.js?v=20261127-2';
-import { CandleFlameRig } from './flames.js?v=20261127-2';
-import { createWinterNightExterior } from './winter-window.js?v=20261127-2';
-import { HanukkahMusicPlayer } from './hanukkah-music.js?v=20261127-2';
-import { RoomSoundEffects } from './sfx.js?v=20261127-2';
-import { GeltCoinPhysics } from './coin-physics.js?v=20261127-2';
-import { ChallahClothCover } from './phys-cloth.js?v=20261127-2';
+import { GatedAssetLoader } from './asset-loader.js?v=20261127-3';
+import { computeHanukkahNight, HANUKKAH_2026_NIGHT_DATES, isShabbatForSelection } from './hanukkah-calendar.js?v=20261127-3';
+import { CandleFlameRig } from './flames.js?v=20261127-3';
+import { createWinterNightExterior } from './winter-window.js?v=20261127-3';
+import { HanukkahMusicPlayer } from './hanukkah-music.js?v=20261127-3';
+import { RoomSoundEffects } from './sfx.js?v=20261127-3';
+import { GeltCoinPhysics } from './coin-physics.js?v=20261127-3';
+import { ChallahClothCover } from './phys-cloth.js?v=20261127-3';
 
-const ASSET_VERSION = '20261127-2';
+const ASSET_VERSION = '20261127-3';
 const vUrl = (path) => `${path}?v=${ASSET_VERSION}`;
 
 // Exact world heights matching Blender exports (1 unit = 1 meter)
@@ -38,6 +38,7 @@ const ASSET_MANIFEST = [
   { key: 'dreidel_wood', type: 'glb', url: vUrl('assets/models/dreidel_wood.glb'), label: 'Carved Wooden Dreidel' },
   { key: 'gelt', type: 'glb', url: vUrl('assets/models/gelt.glb'), label: 'Gold & Silver Chocolate Gelt' },
   { key: 'sufganiyot', type: 'glb', url: vUrl('assets/models/sufganiyot.glb'), label: 'Sufganiyot Porcelain Platter' },
+  { key: 'latkes', type: 'glb', url: vUrl('assets/models/latkes.glb'), label: 'Crispy Potato Latkes, Sour Cream & Applesauce' },
   { key: 'kiddush_cup', type: 'glb', url: vUrl('assets/models/kiddush_cup.glb'), label: 'Sterling Silver Kiddush Cup' },
   { key: 'challah', type: 'glb', url: vUrl('assets/models/challah.glb'), label: 'Braided Challah & Embroidered Cover' },
   { key: 'votive', type: 'glb', url: vUrl('assets/models/votive.glb'), label: 'Cobalt & Silver Votive Candles' },
@@ -64,8 +65,8 @@ const CAMERA_PRESETS = {
     target: new THREE.Vector3(-0.38, 0.80, -0.18),
   },
   feast: {
-    pos: new THREE.Vector3(0.70, 1.18, 0.46),
-    target: new THREE.Vector3(0.45, 0.80, -0.28),
+    pos: new THREE.Vector3(0.42, 1.18, 0.56),
+    target: new THREE.Vector3(0.26, 0.79, -0.22),
   },
   window: {
     pos: new THREE.Vector3(-0.24, 1.24, 0.86),
@@ -195,10 +196,13 @@ class HanukkahApp {
     };
     this.toastTimer = null;
 
-    // Interactive sufganiyot bite states + oozing jam drips & kiddush cup wine sip state
+    // Interactive sufganiyot bite states + latkes + oozing jam drips & kiddush cup wine sip state
     this.sufganiyotItems = []; // [{ id, states: [obj0..obj3], state: 0..4, popTimer: 0, drips: [] }]
     this.sufganiyotRoot = null;
     this.sufganiyotPlatter = null;
+    this.latkeItems = []; // [{ id, mesh, sourCream, applesauce, eaten: false, topping: null }]
+    this.latkesRoot = null;
+    this.challahRoot = null;
     this.jamDrips = []; // active oozing strawberry jam tendrils
     this.jamDripMat = null;
     this.kiddushRoot = null;
@@ -260,6 +264,8 @@ class HanukkahApp {
         musicTrack: this.musicPlayer.currentTrack.title,
         wineLevel: this.wineLevel,
         sufganiyotStates: this.sufganiyotItems.map((s) => s.state),
+        latkesRemaining: this.latkeItems.filter((l) => !l.eaten).length,
+        challahVisible: Boolean(this.challahRoot && this.challahRoot.visible),
         challahUncovered: this.challahUncovered,
         geltCoinCount: this.geltCoins.length,
         interactiveObjectCount: this.interactiveRegistry.length,
@@ -600,8 +606,8 @@ class HanukkahApp {
     };
 
     // 6 playable dreidels scattered naturally across the entire walnut table (all tilted at rest, all clickable to spin!)
-    this.primaryDreidel = createInteractiveDreidel(enableShadows(blueProto, 1.15), -0.17, TABLE_Y, -0.06, 0.35, Math.PI / 2);
-    createInteractiveDreidel(enableShadows(woodProto, 1.10), 0.13, TABLE_Y, -0.02, -0.82, Math.PI);
+    this.primaryDreidel = createInteractiveDreidel(enableShadows(blueProto, 1.15), -0.22, TABLE_Y, 0.03, 0.35, Math.PI / 2);
+    createInteractiveDreidel(enableShadows(woodProto, 1.10), 0.22, TABLE_Y, 0.04, -0.82, Math.PI);
     createInteractiveDreidel(enableShadows(blueProto.clone(), 1.15), 0.61, TABLE_Y, 0.02, 1.28, -Math.PI / 2);
     createInteractiveDreidel(enableShadows(woodProto.clone(), 1.10), -0.51, TABLE_Y, 0.02, 0.72, 0);
     createInteractiveDreidel(enableShadows(woodProto.clone(), 1.10), -0.58, TABLE_Y, -0.62, 2.25, Math.PI / 2);
@@ -626,6 +632,9 @@ class HanukkahApp {
     this.coinPhysics.addStaticObstacle(0.0, -0.40, 0.115, 0.45);   // Sterling Silver Hanukkiah base
     this.coinPhysics.addStaticObstacle(0.31, -0.46, 0.065, 0.20);  // Kiddush Cup & saucer
     this.coinPhysics.addStaticObstacle(0.39, -0.09, 0.135, 0.09);  // Sufganiyot Platter
+    this.coinPhysics.addStaticObstacle(0.00, -0.04, 0.112, 0.05);  // Crispy Latkes Plate
+    this.coinPhysics.addStaticObstacle(-0.132, -0.088, 0.040, 0.05); // Sour Cream Bowl
+    this.coinPhysics.addStaticObstacle(0.132, -0.088, 0.040, 0.05);  // Applesauce Bowl
     this.interactiveDreidels.forEach((rig) => {
       this.coinPhysics.addDynamicObstacle(() => ({
         worldPos: rig.pivot.position,
@@ -680,6 +689,36 @@ class HanukkahApp {
     }
     this.scene.add(sufganiyot);
 
+    // Freshly Fried Golden-Brown Crispy Potato Latkes + Sour Cream Bowl (with chives) + Spiced Applesauce Bowl!
+    const latkes = enableShadows(assets.models.latkes.scene, 1.15);
+    latkes.position.set(0.00, TABLE_Y, -0.04);
+    this.latkesRoot = latkes;
+    const latkesPlate = latkes.getObjectByName('Latkes_Plate');
+    if (latkesPlate) {
+      this.registerInteractive(latkesPlate, 'latkes_plate');
+    }
+    const sourCreamBowl = latkes.getObjectByName('SourCream_Bowl');
+    if (sourCreamBowl) {
+      this.registerInteractive(sourCreamBowl, 'sour_cream_bowl');
+    }
+    const applesauceBowl = latkes.getObjectByName('Applesauce_Bowl');
+    if (applesauceBowl) {
+      this.registerInteractive(applesauceBowl, 'applesauce_bowl');
+    }
+    for (let i = 1; i <= 6; i++) {
+      const lMesh = latkes.getObjectByName(`Latke_${i}`);
+      const scTop = latkes.getObjectByName(`Latke_${i}_SourCream`);
+      const apTop = latkes.getObjectByName(`Latke_${i}_Applesauce`);
+      if (scTop) scTop.visible = false;
+      if (apTop) apTop.visible = false;
+      if (lMesh) {
+        const lIdx = this.latkeItems.length;
+        this.latkeItems.push({ id: i, mesh: lMesh, sourCream: scTop, applesauce: apTop, eaten: false, topping: null });
+        this.registerInteractive(lMesh, 'latke', { latkeIndex: lIdx });
+      }
+    }
+    this.scene.add(latkes);
+
     // Sterling Silver Kiddush Cup & Saucer filled with Sip-by-Sip Physically-Based Transparent Red Wine!
     const kiddush = enableShadows(assets.models.kiddush_cup.scene, 1.48);
     kiddush.position.set(0.31, RUNNER_Y, -0.46);
@@ -719,6 +758,7 @@ class HanukkahApp {
     const challah = enableShadows(assets.models.challah.scene, 1.05);
     challah.position.set(0.62, RUNNER_Y, -0.37);
     challah.rotation.y = -0.14;
+    this.challahRoot = challah;
     const bakedCover = challah.getObjectByName('Challah_Cover_Group');
     let coverTexMap = null;
     let coverNormalMap = null;
@@ -982,6 +1022,12 @@ class HanukkahApp {
       }
     }
 
+    // Challah & cover appear ONLY on Shabbat (computed dynamically from the selected calendar Date!)
+    if (this.challahRoot) {
+      const showChallah = isShabbatForSelection(n, this.mode, new Date());
+      this.challahRoot.visible = showChallah;
+    }
+
     this.updateNightHUD();
   }
 
@@ -1223,6 +1269,67 @@ class HanukkahApp {
     this.showActionToast('🍩', 'Fresh Sufganiyot Served!', 'Five warm powdered-sugar jelly doughnuts ready to enjoy');
   }
 
+  eatLatke(index) {
+    const item = this.latkeItems[index];
+    if (!item || item.eaten) return;
+    this.sfx.playBite();
+    item.eaten = true;
+    item.mesh.visible = false;
+    if (item.sourCream) item.sourCream.visible = false;
+    if (item.applesauce) item.applesauce.visible = false;
+    const rem = this.latkeItems.filter((l) => !l.eaten).length;
+    if (rem > 0) {
+      const topNote =
+        item.topping === 'sour_cream'
+          ? ' with cool sour cream & chives!'
+          : item.topping === 'applesauce'
+          ? ' with warm spiced applesauce!'
+          : ' — click the sour cream or applesauce bowls to top the rest!';
+      this.showActionToast('🥔', `Crispy Latke! (${rem} left)`, `Freshly fried golden potato pancake${topNote}`);
+    } else {
+      this.showActionToast('✨', 'All Latkes Enjoyed!', 'Click the empty plate to serve a fresh sizzling batch');
+    }
+  }
+
+  refillLatkesIfEmpty() {
+    if (!this.latkeItems.length) return;
+    const allEaten = this.latkeItems.every((l) => l.eaten);
+    if (!allEaten) {
+      this.showActionToast('🥔', 'Crispy Potato Latkes', 'Click any latke to taste it, or click the sour cream & applesauce bowls to add toppings!');
+      return;
+    }
+    this.sfx.playChime(1046.5);
+    for (const item of this.latkeItems) {
+      item.eaten = false;
+      item.topping = null;
+      item.mesh.visible = true;
+      if (item.sourCream) item.sourCream.visible = false;
+      if (item.applesauce) item.applesauce.visible = false;
+    }
+    this.showActionToast('🥔', 'Fresh Batch of Latkes!', 'Six piping-hot crispy shredded-potato latkes straight from the pan');
+  }
+
+  topNextLatke(kind) {
+    // Prefer the topmost untopped remaining latke (#6 -> #1), then one with a different topping
+    const remaining = this.latkeItems.filter((l) => !l.eaten).reverse();
+    const target = remaining.find((l) => !l.topping) || remaining.find((l) => l.topping !== kind) || remaining[0];
+    if (!target) {
+      this.showActionToast('🥄', kind === 'sour_cream' ? 'Sour Cream & Chives' : 'Spiced Applesauce', 'Click the empty latke plate first to serve a fresh batch!');
+      return;
+    }
+    this.sfx.playChime(kind === 'sour_cream' ? 1480.0 : 1318.5);
+    target.topping = kind;
+    if (target.sourCream) target.sourCream.visible = kind === 'sour_cream';
+    if (target.applesauce) target.applesauce.visible = kind === 'applesauce';
+    this.showActionToast(
+      kind === 'sour_cream' ? '🥣' : '🍎',
+      kind === 'sour_cream' ? 'Sour Cream & Chives Added!' : 'Spiced Applesauce Added!',
+      kind === 'sour_cream'
+        ? 'A cool swirl of sour cream with fresh chives spooned onto a crispy latke'
+        : 'Warm golden cinnamon applesauce spooned onto a crispy latke'
+    );
+  }
+
   sipKiddushWine() {
     if (this.wineLevel > 0) {
       this.sfx.playLchaimToast();
@@ -1319,6 +1426,18 @@ class HanukkahApp {
         break;
       case 'platter':
         this.refillSufganiyotIfEmpty();
+        break;
+      case 'latke':
+        this.eatLatke(info.latkeIndex);
+        break;
+      case 'latkes_plate':
+        this.refillLatkesIfEmpty();
+        break;
+      case 'sour_cream_bowl':
+        this.topNextLatke('sour_cream');
+        break;
+      case 'applesauce_bowl':
+        this.topNextLatke('applesauce');
         break;
       case 'kiddush':
         this.sipKiddushWine();
@@ -1730,8 +1849,8 @@ class HanukkahApp {
       const ease = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
       this.dreidelLarge.rotation.y = 0.42 + ease * Math.PI * 2.0;
     }
-    // Live real-time PhysCloth (jaher/physics-engine) challah cover draping & uncover/re-drape physics!
-    if (this.challahCloth) {
+    // Live real-time PhysCloth (jaher/physics-engine) challah cover draping & uncover/re-drape physics (active on Shabbat)
+    if (this.challahCloth && this.challahRoot && this.challahRoot.visible) {
       this.challahCloth.update(dt, elapsed);
     }
     // Star of David wall medallion celebratory shimmer spin

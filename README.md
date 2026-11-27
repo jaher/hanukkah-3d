@@ -14,6 +14,7 @@ The site computes the active night automatically from the current date (Night 1 
 
 - The raised central ***shamash*** stays lit at all times.
 - On Night *N*, *N* candles are placed **right-to-left** and ignited sequentially **left-to-right** (starting from the newest leftmost candle).
+- **Shabbat Challah**: The braided challah and its embroidered cover appear dynamically only when the selected night falls on Shabbat (Friday evening — **Night 1, Fri Dec 4** and **Night 8, Fri Dec 11** in 2026) and are hidden completely on non-Shabbat nights.
 - Use the on-screen night selector (`Auto`, `0`, `1`–`8`) or keys `0`–`8` to preview any night.
 
 | Shamash Only (Always Lit) | Night 1 — Fri, Dec 4 (Far Right + Shamash) |
@@ -30,9 +31,9 @@ The site computes the active night automatically from the current date (Night 1 
 
 Every prop in the room was modeled in headless Blender (`scripts/blender/`) with PBR materials and tangent-space normal maps, exported to `.glb`, paired with Cycles-baked GI/AO architectural lightmaps, and rendered live in WebGL via Three.js.
 
-| Dreidels, Embossed Chocolate Gelt & Velvet Pouch | Sufganiyot, Carved Kiddush Cup & Braided Challah |
+| Dreidels, Embossed Chocolate Gelt & Velvet Pouch | Crispy Latkes, Sufganiyot, Kiddush Cup & Shabbat Challah |
 | :---: | :---: |
-| ![Heirloom Filigree Dreidel, Playable Dreidels, and Chocolate Gelt](docs/screenshots/dreidel-gelt.jpg) | ![Sufganiyot Platter, Sterling Silver Kiddush Cup, and Challah with Embroidered Cover](docs/screenshots/feast-table.jpg) |
+| ![Heirloom Filigree Dreidel, Playable Dreidels, and Chocolate Gelt](docs/screenshots/dreidel-gelt.jpg) | ![Crispy Potato Latkes with Sour Cream and Applesauce, Sufganiyot Platter, Sterling Silver Kiddush Cup, and Shabbat Challah](docs/screenshots/feast-table.jpg) |
 
 ### Jerusalem Old City Winter Night Window
 ![Photorealistic Jerusalem Old City Winter Night Skyline — Golden Limestone Rooftops, Western Wall, and Dome of the Rock through the Window](docs/screenshots/winter-window.jpg)
@@ -47,14 +48,15 @@ Every prop in the room was modeled in headless Blender (`scripts/blender/`) with
   - **Orbit & Zoom**: Smooth damped camera controls with 5 curated viewpoints (`Room`, `Hanukkiah`, `Dreidel & Gelt`, `Feast`, `Jerusalem`).
   - **Every Object in the Room Is Interactive** (with synthesized Web Audio foley):
     - **Dreidels**: Six blue and carved wooden dreidels rest naturally tilted on their sides across the table; click or tap any one directly (or press `Space`) to spin them independently—multiple dreidels can spin simultaneously until each completes its wobble and topples back tilted with its winning letter (**נ ג ה ש**) facing up. Click the large silver heirloom dreidel to spin it 360° on its pedestal with a chime.
+    - **Crispy Potato Latkes, Sour Cream & Applesauce**: A blue-and-white ceramic plate of freshly fried, golden-brown shredded-potato latkes with crisp browned edges and subtle oil sheen, served beside a bowl of swirled sour cream with fresh chives and a bowl of spiced applesauce (each with a sterling silver spoon). Click either condiment bowl to spoon a dollop onto the next latke, click any latke to enjoy it, or click the empty plate to serve a fresh batch.
     - **Sufganiyot**: Click any jelly doughnut to take progressive bites exposing fluffy brioche crumb and a single live oozing strand of ruby strawberry jelly flowing down onto the platter (click the empty platter after finishing all five to serve a fresh batch).
     - **Chocolate Gelt & Pouch**: Click any of the 22 individual gold & silver coins to flip and spin it with 3D rigid-body table, stack, and prop collisions plus metallic **coin clink** audio; click the velvet pouch for a coin-bag jingle that pops nearby coins.
     - **Kiddush Cup & Wine**: Click the sterling silver Kiddush cup to raise a celebratory **"L'Chaim!"** toast with a real male Hebrew voice recording and clinking cups while sipping the transmissive red wine down level by level until empty (click again to refill).
-    - **Challah & Cover**: Powered live in Three.js by a JavaScript port of [`jaher/physics-engine`](https://github.com/jaher/physics-engine)'s `phys::Cloth` Verlet + iterative constraint solver—draping organically over the braided challah, flattening cleanly onto the table, and physically peeling back / re-draping when clicked.
+    - **Shabbat Challah & Cover**: Dynamically shown only on Shabbat (Friday evening — Night 1 and Night 8 in 2026) and hidden on weekday nights. Powered live in Three.js by a JavaScript port of [`jaher/physics-engine`](https://github.com/jaher/physics-engine)'s `phys::Cloth` Verlet + iterative constraint solver—draping organically over the braided challah without crossing the plate, flattening cleanly onto the table, and physically peeling back / re-draping when clicked.
     - **Hanukkiah, Candles, Votives & Matchbox**: Click any lit candle or cobalt votive for a dancing flame flicker flare; click the silver hanukkiah body to advance and light the next night; click the candle box & matches for a match-strike flare across all candles.
     - **Rebbe Portrait, Stars, Window, Sconces & Curtains**: Click the framed Lubavitcher Rebbe portrait to read Hanukkah teachings, the Star of David wall medallion or crystal window ornament for chimes & sparkle, the Jerusalem window for a swirling winter snow gust, the wall sconces/lamp to toggle warm candlelight dimmer mood, or the velvet drapes for a soft breeze ripple.
-  - **Subtle Traditional Hanukkah Music**: Built-in polyphonic Web Audio synthesizer playing public-domain arrangements of *Ma'oz Tzur*, *The Dreidel Song*, and *Hanukkah, Oh Hanukkah* with warm room reverb at a subtle background volume—starts automatically on your first click/tap anywhere on the page, with a clear **♪ Music: On / Off** control (`M` key) and next-track switcher (`⏭`).
-  - **Gated Loading with Cancel / Retry**: The scene remains hidden until all 18 required `.glb` models, metadata, and lightmaps finish loading, backed by real `AbortController` cancellation and clean retry.
+  - **Subtle Traditional Hanukkah Music**: Built-in polyphonic Web Audio synthesizer playing public-domain arrangements of *Ma'oz Tzur*, *The Dreidel Song*, and *Hanukkah, Oh Hanukkah* with warm room reverb at a subtle background volume—ON by default (starting automatically on page load or first click/tap if the browser blocks autoplay), with a clear **♪ Music: On / Off** control (`M` key) and next-track switcher.
+  - **Gated Loading with Cancel / Retry**: The scene remains hidden until all 19 required `.glb` models, metadata, and lightmaps finish loading, backed by real `AbortController` cancellation and clean retry.
   - **Keyboard Shortcuts**: `0`–`8` select night, `A` returns to Auto calendar mode, `R` resets camera, `Space` spins a dreidel, `M` toggles music, `H` toggles the HUD.
 
 ## Local Development

@@ -32,6 +32,38 @@ export const HANUKKAH_2026_NIGHT_DATES = [
 ];
 
 /**
+ * Return the Gregorian evening Date for Hanukkah 2026 Night N (1..8), or null for 0.
+ * Night 1 starts Friday Dec 4, 2026; Night N starts Dec (3 + N), 2026.
+ * @param {number} nightCount
+ */
+export function getHanukkahNightDate(nightCount) {
+  const n = Math.round(nightCount);
+  if (n < 1 || n > 8) return null;
+  return new Date(2026, 11, 3 + n, 19, 0, 0, 0); // month 11 = December
+}
+
+/**
+ * Determine dynamically from the calendar Date whether the selected night (or live Auto time)
+ * falls on Shabbat (Friday evening / Saturday before nightfall). Never hardcodes night numbers.
+ * @param {number} nightCount
+ * @param {'auto'|'manual'} mode
+ * @param {Date} now
+ */
+export function isShabbatForSelection(nightCount, mode = 'manual', now = new Date()) {
+  if (mode === 'auto') {
+    const day = now.getDay();
+    const mins = now.getHours() * 60 + now.getMinutes();
+    const sunsetMins = SUNSET_HOUR * 60 + SUNSET_MINUTE;
+    if (day === 5 && mins >= sunsetMins) return true;
+    if (day === 6 && now.getHours() < NIGHTFALL_END_HOUR) return true;
+    return false;
+  }
+  const nightDate = getHanukkahNightDate(nightCount);
+  if (!nightDate) return false;
+  return nightDate.getDay() === 5; // Friday evening = Shabbat!
+}
+
+/**
  * Compute the active Hanukkah 2026 night (0..8) from any Date object.
  * @param {Date} now
  */
