@@ -16,19 +16,30 @@
 export class RoomSoundEffects {
   constructor() {
     this.ctx = null;
-    this.voices = [];
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      const loadVoices = () => {
-        try {
-          this.voices = window.speechSynthesis.getVoices() || [];
-        } catch (_) {
-          this.voices = [];
-        }
-      };
-      loadVoices();
-      if (window.speechSynthesis.addEventListener) {
-        window.speechSynthesis.addEventListener('voiceschanged', loadVoices);
-      }
+    this.lchaimRawPromise = null;
+    this.lchaimBuffer = null;
+    this.preloadLchaimAudio();
+  }
+
+  /** Pre-fetch the real male "L'chaim!" recording (assets/audio/lchaim.wav) so toast playback is instantaneous! */
+  preloadLchaimAudio() {
+    if (typeof fetch !== 'function') return;
+    this.lchaimRawPromise = fetch('assets/audio/lchaim.wav')
+      .then((res) => (res.ok ? res.arrayBuffer() : null))
+      .catch(() => null);
+  }
+
+  async getLchaimBuffer(ctx) {
+    if (this.lchaimBuffer) return this.lchaimBuffer;
+    if (!this.lchaimRawPromise) this.preloadLchaimAudio();
+    try {
+      const raw = await this.lchaimRawPromise;
+      if (!raw || !ctx) return null;
+      // Slice so decodeAudioData can safely be retried if needed
+      this.lchaimBuffer = await ctx.decodeAudioData(raw.slice(0));
+      return this.lchaimBuffer;
+    } catch (_) {
+      return null;
     }
   }
 
@@ -165,157 +176,40 @@ export class RoomSoundEffects {
     });
   }
 
-  /** Warm multi-voice dining-table chorus cheering "L'chaim!" using formant vocal synthesis + cozy room bloom. */
-  playLchaimChorusBed(ctx, startTime, masterVol = 0.16) {
-    // Cozy room short reflections bus
-    const bus = ctx.createGain();
-    bus.gain.value = masterVol;
-
-    const dry = ctx.createGain();
-    dry.gain.value = 0.85;
-    bus.connect(dry);
-    dry.connect(ctx.destination);
-
-    [0.029, 0.053].forEach((dTime, i) => {
-      const delay = ctx.createDelay(0.15);
-      delay.delayTime.value = dTime;
-      const damp = ctx.createBiquadFilter();
-      damp.type = 'lowpass';
-      damp.frequency.value = 2200 - i * 400;
-      const wet = ctx.createGain();
-      wet.gain.value = 0.24 - i * 0.06;
-      bus.connect(delay);
-      delay.connect(damp);
-      damp.connect(wet);
-      wet.connect(ctx.destination);
-    });
-
-    // 4 joyful family voices around the Hanukkah table (baritone, tenor, alto, soprano)
-    const voices = [
-      { f0: 138, offset: 0.000, fShift: 0.92, gain: 0.34, dur: 0.72 },
-      { f0: 186, offset: 0.018, fShift: 0.98, gain: 0.30, dur: 0.74 },
-      { f0: 256, offset: 0.032, fShift: 1.06, gain: 0.26, dur: 0.70 },
-      { f0: 322, offset: 0.046, fShift: 1.12, gain: 0.22, dur: 0.68 },
-    ];
-
-    voices.forEach((v) => {
-      const t0 = startTime + v.offset;
-      const d = v.dur;
-
-      // Glottal voice source (sawtooth + gentle vibrato)
-      const osc = ctx.createOscillator();
-      osc.type = 'sawtooth';
-      // Celebratory pitch contour: "L'-" (pickup) -> "CHAI-" (joyful lift!) -> "-im!" (warm resolve)
-      osc.frequency.setValueAtTime(v.f0 * 0.95, t0);
-      osc.frequency.linearRampToValueAtTime(v.f0 * 1.00, t0 + d * 0.14);
-      osc.frequency.setValueAtTime(v.f0 * 1.04, t0 + d * 0.26);
-      osc.frequency.linearRampToValueAtTime(v.f0 * 1.18, t0 + d * 0.48);
-      osc.frequency.linearRampToValueAtTime(v.f0 * 1.12, t0 + d * 0.68);
-      osc.frequency.linearRampToValueAtTime(v.f0 * 0.96, t0 + d);
-
-      const vib = ctx.createOscillator();
-      const vibG = ctx.createGain();
-      vib.frequency.value = 5.4 + Math.random() * 0.8;
-      vibG.gain.value = v.f0 * 0.016;
-      vib.connect(vibG);
-      vibG.connect(osc.frequency);
-      vib.start(t0);
-      vib.stop(t0 + d + 0.05);
-
-      // Voice amplitude envelope (soft "L'", pause for "ch", full joyful "AI-IM!")
-      const vEnv = ctx.createGain();
-      vEnv.gain.setValueAtTime(0.0001, t0);
-      vEnv.gain.linearRampToValueAtTime(v.gain * 0.45, t0 + d * 0.05);
-      vEnv.gain.linearRampToValueAtTime(v.gain * 0.10, t0 + d * 0.15); // brief dip during 'ch' fricative
-      vEnv.gain.linearRampToValueAtTime(v.gain * 1.00, t0 + d * 0.29); // joyful "AI!" peak
-      vEnv.gain.setValueAtTime(v.gain * 0.92, t0 + d * 0.62);
-      vEnv.gain.linearRampToValueAtTime(v.gain * 0.50, t0 + d * 0.80); // warm "-im"
-      vEnv.gain.exponentialRampToValueAtTime(0.0001, t0 + d + 0.04);
-
-      osc.connect(vEnv);
-
-      // 3 parallel vocal-tract formants articulating /l ə - x - aɪ - ɪ m/
-      const formantSpecs = [
-        // [L',  AH,   EE,   IM,  Q,   gain]
-        [340, 760, 340, 300, 5.5, 1.0],
-        [1180, 1240, 2240, 1480, 7.5, 0.72],
-        [2520, 2580, 2940, 2400, 9.0, 0.35],
-      ];
-      formantSpecs.forEach(([fL, fAh, fEe, fIm, q, fg]) => {
-        const bp = ctx.createBiquadFilter();
-        bp.type = 'bandpass';
-        bp.Q.value = q;
-        bp.frequency.setValueAtTime(fL * v.fShift, t0);
-        bp.frequency.setValueAtTime(fAh * v.fShift, t0 + d * 0.24);
-        bp.frequency.exponentialRampToValueAtTime(fEe * v.fShift, t0 + d * 0.58);
-        bp.frequency.exponentialRampToValueAtTime(fIm * v.fShift, t0 + d * 0.88);
-        const fGain = ctx.createGain();
-        fGain.gain.value = fg;
-        vEnv.connect(bp);
-        bp.connect(fGain);
-        fGain.connect(bus);
-      });
-
-      osc.start(t0);
-      osc.stop(t0 + d + 0.06);
-
-      // Authentic breathy Hebrew "ch" (/x/ chet) fricative right between "L'" and "aim!"
-      const chStart = t0 + d * 0.12;
-      const chDur = d * 0.15;
-      const chSrc = ctx.createBufferSource();
-      chSrc.buffer = this.makeNoiseBuffer(ctx, chDur + 0.02);
-      const chBp = ctx.createBiquadFilter();
-      chBp.type = 'bandpass';
-      chBp.frequency.setValueAtTime(1650 * v.fShift, chStart);
-      chBp.Q.value = 2.1;
-      const chG = ctx.createGain();
-      chG.gain.setValueAtTime(0.0001, chStart);
-      chG.gain.linearRampToValueAtTime(v.gain * 0.42, chStart + chDur * 0.35);
-      chG.gain.exponentialRampToValueAtTime(0.0001, chStart + chDur);
-      chSrc.connect(chBp);
-      chBp.connect(chG);
-      chG.connect(bus);
-      chSrc.start(chStart);
-    });
-  }
-
-  /** Speak joyful "L'chaim!" with natural browser TTS voice (Hebrew if installed, else natural English). */
-  speakLchaimVoice() {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return false;
-    try {
-      const synth = window.speechSynthesis;
-      const voices = this.voices.length ? this.voices : synth.getVoices() || [];
-      const heVoice = voices.find((v) => /^(he|iw)/i.test(v.lang));
-      const naturalEn =
-        voices.find((v) => /^en/i.test(v.lang) && /(natural|neural|google|samantha|daniel|karen|moira|alex)/i.test(v.name)) ||
-        voices.find((v) => /^en/i.test(v.lang));
-
-      const utter = new SpeechSynthesisUtterance(heVoice ? 'לְחַיִּים!' : "L'chaim!");
-      if (heVoice) {
-        utter.voice = heVoice;
-        utter.lang = heVoice.lang;
-      } else if (naturalEn) {
-        utter.voice = naturalEn;
-        utter.lang = naturalEn.lang;
+  /** Play the real male "L'chaim!" toast recording via Web Audio (with clean HTML5 Audio fallback). */
+  playLchaimVoiceRecording(ctx, delaySec = 0.06) {
+    this.getLchaimBuffer(ctx).then((buf) => {
+      if (buf) {
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        const gain = ctx.createGain();
+        gain.gain.value = 0.92;
+        src.connect(gain);
+        gain.connect(ctx.destination);
+        const startAt = Math.max(ctx.currentTime, ctx.currentTime + delaySec);
+        src.start(startAt);
       } else {
-        utter.lang = 'en-US';
+        // Fallback if Web Audio decode is unavailable
+        try {
+          const el = new Audio('assets/audio/lchaim.wav');
+          el.volume = 0.9;
+          el.play().catch(() => {});
+        } catch (_) {}
       }
-      utter.rate = 1.04;
-      utter.pitch = 1.12;
-      utter.volume = 0.84;
-
-      synth.cancel();
-      synth.speak(utter);
-      return true;
-    } catch (_) {
-      return false;
-    }
+    });
   }
 
-  /** Joyful "L'chaim!" toast: clinking silver/crystal kiddush cups + cheerful voices + warm wine sip! */
+  /** Joyful "L'chaim!" toast: clinking silver/crystal kiddush cups + real male voice saying "L'chaim!" + wine sip! */
   playLchaimToast() {
     const ctx = this.ensureContext();
-    if (!ctx) return;
+    if (!ctx) {
+      try {
+        const el = new Audio('assets/audio/lchaim.wav');
+        el.volume = 0.9;
+        el.play().catch(() => {});
+      } catch (_) {}
+      return;
+    }
     const now = ctx.currentTime;
 
     // 1. Celebratory clinking of kiddush cups around the table!
@@ -324,12 +218,11 @@ export class RoomSoundEffects {
     this.playKiddushCupClink(ctx, now + 0.11, p * 1.06, 0.22);
     this.playKiddushCupClink(ctx, now + 0.23, p * 0.94, 0.14);
 
-    // 2. Voices joyfully cheering "L'chaim!"
-    const hasSpeech = this.speakLchaimVoice();
-    this.playLchaimChorusBed(ctx, now + 0.07, hasSpeech ? 0.14 : 0.24);
+    // 2. Real male voice affirming "L'chaim!" (assets/audio/lchaim.wav)
+    this.playLchaimVoiceRecording(ctx, 0.07);
 
     // 3. Soft wine sip right after the toast!
-    window.setTimeout(() => this.playWineSip(false), 680);
+    window.setTimeout(() => this.playWineSip(false), 860);
   }
 
   /** Gentle liquid sip (or refill pour) for the Kiddush cup wine. */
