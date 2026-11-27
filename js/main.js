@@ -1000,9 +1000,11 @@ class HanukkahApp {
 
   clearDripsForSuf(item) {
     if (!item || !item.drips) return;
+    const toRemove = new Set(item.drips);
     for (const d of item.drips) {
       if (d.group.parent) d.group.parent.remove(d.group);
     }
+    this.jamDrips = this.jamDrips.filter((d) => !toRemove.has(d));
     item.drips = [];
   }
 
@@ -1021,9 +1023,7 @@ class HanukkahApp {
         : new THREE.Vector3(-0.008, 0.018, -0.0015);
 
     const dripOffsets = [
-      { dx: -0.006, dy: 0.001, dz: 0.0015, maxDrop: 0.023, rad: 0.0040, speed: 0.92 },
-      { dx: 0.001, dy: 0.002, dz: 0.0030, maxDrop: 0.031, rad: 0.0048, speed: 0.72 },
-      { dx: 0.0075, dy: 0.000, dz: 0.0010, maxDrop: 0.018, rad: 0.0035, speed: 1.05 },
+      { dx: 0.000, dy: 0.001, dz: 0.0025, maxDrop: 0.030, rad: 0.0044, speed: 0.72 },
     ];
 
     dripOffsets.forEach((cfg) => {
