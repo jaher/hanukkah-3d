@@ -59,10 +59,17 @@ def build_sufganiyot():
         coat=0.92,
         coat_roughness=0.04,
     )
+    mat_crumb = make_pbr_material(
+        "SufganiyahInteriorCrumb",
+        base_color=(0.94, 0.82, 0.54, 1.0),
+        metallic=0.0,
+        roughness=0.94,
+        specular=0.12,
+        bump_tex_path=os.path.join(TEXTURES_DIR, "sufganiyah_normal.png"),
+        bump_strength=0.95,
+    )
 
-    parts = []
-
-    # 1. Scalloped blue-and-white porcelain platter (diameter ~0.27 m, Z = 0.0 .. 0.022)
+    # 1. Scalloped blue-and-white porcelain platter (separate named mesh so clicking platter/doughnuts works cleanly!)
     plate_prof = [
         (0.088, 0.000),
         (0.095, 0.002),
@@ -85,7 +92,6 @@ def build_sufganiyot():
         flute_z_range=(0.015, 0.023),
         mat=mat_platter,
     )
-    # Planar top-down UVs for porcelain plate pattern!
     bm = bmesh.new()
     bm.from_mesh(plate.data)
     uv_layer = bm.loops.layers.uv.new("UVMap")
@@ -95,38 +101,58 @@ def build_sufganiyot():
             loop[uv_layer].uv = (0.5 + v.x / 0.276, 0.5 + v.y / 0.276)
     bm.to_mesh(plate.data)
     bm.free()
-    parts.append(plate)
 
-    # 2. Five plump fried jelly doughnuts (4 in ring + 1 nestled slightly perched in center!)
-    def make_doughnut(name, cx, cy, base_z, radius=0.040, height=0.044, tilt=(0.0, 0.0, 0.0), seed=0):
-        rng = random.Random(seed)
-        u_segs = 36
-        v_segs = 22
+    # 2. Watertight single-manifold scalloped bite cutter (organic curved teeth-mark silhouette!)
+    def create_bite_cutter(name, center_vec, cut_r=0.026, depth_h=0.10):
+        segs = 36
+        bm_c = bmesh.new()
+        bot_v = []
+        top_v = []
+        for i in range(segs):
+            a = 2.0 * math.pi * i / segs
+            # Organic tooth-arc scallops around the circular bite profile (100% watertight manifold!)
+            rr = cut_r * (1.0 + 0.085 * math.sin(6.0 * a) + 0.04 * math.cos(10.0 * a))
+            bot_v.append(bm_c.verts.new((center_vec.x + rr * math.cos(a), center_vec.y + rr * math.sin(a), center_vec.z - depth_h * 0.5)))
+            top_v.append(bm_c.verts.new((center_vec.x + rr * math.cos(a), center_vec.y + rr * math.sin(a), center_vec.z + depth_h * 0.5)))
+        for i in range(segs):
+            inext = (i + 1) % segs
+            bm_c.faces.new((bot_v[i], bot_v[inext], top_v[inext], top_v[i]))
+        bm_c.faces.new(list(reversed(bot_v)))
+        bm_c.faces.new(top_v)
+        bmesh.ops.recalc_face_normals(bm_c, faces=bm_c.faces)
+        mc = bpy.data.meshes.new(name)
+        bm_c.to_mesh(mc)
+        bm_c.free()
+        c_obj = bpy.data.objects.new(name, mc)
+        bpy.context.collection.objects.link(c_obj)
+        c_obj.data.materials.append(mat_crumb)
+        return c_obj
+
+    # 3. Build each doughnut with 4 bite states (State0=whole, State1=1 bite, State2=2 bites/half, State3=final morsel)
+    def make_doughnut_base_mesh(name, radius=0.040, height=0.044, seed=0):
+        u_segs = 40
+        v_segs = 24
         bm = bmesh.new()
         uv_layer = bm.loops.layers.uv.new("UVMap")
         rings = []
 
         for j in range(v_segs + 1):
-            vt = j / v_segs  # 0 bottom -> 1 top
-            phi = -math.pi / 2.0 + vt * math.pi  # -pi/2 .. +pi/2
-            # Plump pillowy doughnut profile: slightly flattened base, wide rounded belly, dimpled crown
-            r_raw = math.cos(phi)
-            # slightly bulge equatorial belly
+            vt = j / v_segs
+            phi = -math.pi / 2.0 + vt * math.pi
+            r_raw = max(0.0, math.cos(phi))
             r_profile = radius * (r_raw ** 0.82)
-            z_raw = 0.5 * (math.sin(phi) + 1.0)  # 0..1
+            z_raw = 0.5 * (math.sin(phi) + 1.0)
             z_pos = z_raw * height
             if vt < 0.14:
-                z_pos *= 0.45  # flat resting bottom
+                z_pos *= 0.45
             if vt > 0.88:
-                # subtle dimple in very center where jam is injected
                 z_pos -= 0.0038 * ((vt - 0.88) / 0.12) ** 2
 
             ring = []
             for i in range(u_segs):
                 ang = 2 * math.pi * i / u_segs
-                # Organic handmade irregularity
                 wobble = 1.0 + 0.032 * math.sin(3 * ang + seed) + 0.022 * math.cos(5 * ang - seed * 1.7)
-                rr = max(0.0004, r_profile * wobble)
+                rr = max(0.0005, r_profile * wobble)
                 ring.append(bm.verts.new((rr * math.cos(ang), rr * math.sin(ang), z_pos)))
             rings.append((vt, ring))
 
@@ -138,9 +164,22 @@ def build_sufganiyot():
                 f = bm.faces.new((r0[i], r0[inext], r1[inext], r1[i]))
                 u0 = i / u_segs
                 u1 = (i + 1) / u_segs
-                uvs = [(u0, vt0), (u1, vt0), (u1, vt1), (u0, vt1)]
-                for loop, uv in zip(f.loops, uvs):
+                for loop, uv in zip(f.loops, [(u0, vt0), (u1, vt0), (u1, vt1), (u0, vt1)]):
                     loop[uv_layer].uv = uv
+
+        # Close top & bottom poles watertight for rock-solid boolean bite carving!
+        c_bot = bm.verts.new((0.0, 0.0, 0.0))
+        for i in range(u_segs):
+            inext = (i + 1) % u_segs
+            f = bm.faces.new((c_bot, rings[0][1][inext], rings[0][1][i]))
+            for loop in f.loops:
+                loop[uv_layer].uv = (0.5, 0.02)
+        c_top = bm.verts.new((0.0, 0.0, height - 0.0038))
+        for i in range(u_segs):
+            inext = (i + 1) % u_segs
+            f = bm.faces.new((c_top, rings[-1][1][i], rings[-1][1][inext]))
+            for loop in f.loops:
+                loop[uv_layer].uv = (0.5, 0.98)
 
         bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
         mesh = bpy.data.meshes.new(name)
@@ -148,51 +187,135 @@ def build_sufganiyot():
         bm.free()
         d_obj = bpy.data.objects.new(name, mesh)
         bpy.context.collection.objects.link(d_obj)
-        d_obj.location = (cx, cy, base_z)
-        d_obj.rotation_euler = tilt
-        set_smooth(d_obj, 55.0)
+        set_smooth(d_obj, 50.0)
         d_obj.data.materials.append(mat_doughnut)
+        d_obj.data.materials.append(mat_crumb)
+        return d_obj
 
-        # Glossy ruby jam mound peeking out of top dimple!
+    def make_jam_dot(name, height, seed, pos_offset=(0.0, 0.0, 0.0), scale_xyz=(1.0, 1.0, 0.48), radius=0.0115):
         bm_j = bmesh.new()
-        bmesh.ops.create_uvsphere(bm_j, u_segments=18, v_segments=12, radius=0.0115)
+        bmesh.ops.create_uvsphere(bm_j, u_segments=18, v_segments=12, radius=radius)
         for v in bm_j.verts:
-            v.co.z *= 0.48
-            # slight organic jam ooze lobe
             ang = math.atan2(v.co.y, v.co.x)
-            v.co.x *= 1.0 + 0.14 * math.sin(3 * ang + seed)
-            v.co.y *= 1.0 + 0.12 * math.cos(2 * ang - seed)
-            v.co.z += height - 0.0030
-        jm = bpy.data.meshes.new(name + "_Jam")
+            v.co.x = v.co.x * scale_xyz[0] * (1.0 + 0.14 * math.sin(3 * ang + seed)) + pos_offset[0]
+            v.co.y = v.co.y * scale_xyz[1] * (1.0 + 0.12 * math.cos(2 * ang - seed)) + pos_offset[1]
+            v.co.z = v.co.z * scale_xyz[2] + height - 0.0030 + pos_offset[2]
+        jm = bpy.data.meshes.new(name)
         bm_j.to_mesh(jm)
         bm_j.free()
-        j_obj = bpy.data.objects.new(name + "_Jam", jm)
+        j_obj = bpy.data.objects.new(name, jm)
         bpy.context.collection.objects.link(j_obj)
-        j_obj.location = (cx, cy, base_z)
-        j_obj.rotation_euler = tilt
         set_smooth(j_obj, 60.0)
         j_obj.data.materials.append(mat_jam)
+        return j_obj
 
-        return [d_obj, j_obj]
+    def build_bitten_doughnut_states(idx, cx, cy, base_z, r, h, tilt, sd):
+        # Bite cutter positions in local doughnut space (biting from front-facing -Y side inward!)
+        # State 1: 1 crisp bite at front-right; State 2: 2nd big bite across middle; State 3: 3rd bite leaving tasty back crescent!
+        bite_specs = [
+            (Vector((0.010, -r * 0.88, h * 0.5)), 0.025),
+            (Vector((-0.014, -r * 0.52, h * 0.5)), 0.028),
+            (Vector((0.018, -r * 0.12, h * 0.5)), 0.030),
+        ]
 
-    # 4 doughnuts arranged warmly on plate + 1 top centerpiece
+        for state in range(4):  # 0 = whole, 1 = 1 bite, 2 = 2 bites, 3 = final morsel
+            state_name = f"Suf_{idx}_State{state}"
+            d_obj = make_doughnut_base_mesh(state_name + "_Body", r, h, sd)
+
+            # Carve real boolean bites progressively with EXACT watertight solver!
+            for b_i in range(state):
+                c_pos, c_rad = bite_specs[b_i]
+                cutter = create_bite_cutter(f"_TmpCut_{idx}_{state}_{b_i}", c_pos, cut_r=c_rad)
+                mod = d_obj.modifiers.new("Bite", 'BOOLEAN')
+                mod.operation = 'DIFFERENCE'
+                mod.solver = 'EXACT'
+                mod.object = cutter
+                bpy.context.view_layer.objects.active = d_obj
+                bpy.ops.object.modifier_apply(modifier="Bite")
+                bpy.data.objects.remove(cutter, do_unlink=True)
+                # Ensure all newly carved concave interior faces show fluffy golden brioche crumb!
+                for poly in d_obj.data.polygons:
+                    p_center = poly.center
+                    if (Vector((p_center.x, p_center.y, 0)) - Vector((c_pos.x, c_pos.y, 0))).length <= c_rad * 1.15:
+                        poly.material_index = 1
+
+            state_parts = [d_obj]
+            # Top ruby jam dot (visible on whole & 1-bite states)
+            if state <= 1:
+                state_parts.append(make_jam_dot(state_name + "_TopJam", h, sd))
+            # Exposed luscious ruby strawberry jam pocket gleaming inside the bitten interior!
+            if state == 1:
+                state_parts.append(
+                    make_jam_dot(
+                        state_name + "_InnerJam",
+                        h * 0.54,
+                        sd + 11,
+                        pos_offset=(0.003, -r * 0.28, 0.0),
+                        scale_xyz=(1.1, 0.85, 0.72),
+                        radius=0.0125,
+                    )
+                )
+            elif state == 2:
+                state_parts.append(
+                    make_jam_dot(
+                        state_name + "_InnerJam",
+                        h * 0.52,
+                        sd + 23,
+                        pos_offset=(0.002, r * 0.02, 0.0),
+                        scale_xyz=(1.25, 0.8, 0.72),
+                        radius=0.0135,
+                    )
+                )
+            elif state == 3:
+                state_parts.append(
+                    make_jam_dot(
+                        state_name + "_InnerJam",
+                        h * 0.48,
+                        sd + 31,
+                        pos_offset=(-0.008, r * 0.28, 0.0),
+                        scale_xyz=(0.9, 0.7, 0.65),
+                        radius=0.0095,
+                    )
+                )
+
+            joined = join_objects(state_parts, state_name)
+            joined.location = (cx, cy, base_z)
+            joined.rotation_euler = tilt
+            set_smooth(joined, 42.0)
+
     ring_positions = [
         (0.048, 0.036, 0.009, 0.039, 0.043, (0.04, -0.03, 0.4), 1),
         (-0.046, 0.040, 0.009, 0.040, 0.044, (-0.03, 0.05, 1.8), 2),
-        (-0.048, -0.040, 0.009, 0.039, 0.042, (0.05, 0.04, 3.1), 3),
-        (0.046, -0.038, 0.009, 0.040, 0.044, (-0.04, -0.04, 4.7), 4),
-        (0.002, 0.003, 0.038, 0.039, 0.043, (0.07, -0.06, 2.3), 5),
+        (-0.048, -0.040, 0.009, 0.039, 0.042, (0.05, 0.04, 0.2), 3),
+        (0.046, -0.038, 0.009, 0.040, 0.044, (-0.04, -0.04, -0.3), 4),
+        (0.002, 0.003, 0.038, 0.039, 0.043, (0.07, -0.06, 0.15), 5),
     ]
     for idx, (x, y, z, r, h, tilt, sd) in enumerate(ring_positions):
-        parts.extend(make_doughnut(f"Sufganiyah_{idx+1}", x, y, z, r, h, tilt, sd))
+        build_bitten_doughnut_states(idx + 1, x, y, z, r, h, tilt, sd)
 
-    join_objects(parts, "Sufganiyot_Platter")
     export_glb(os.path.join(MODELS_DIR, "sufganiyot.glb"))
 
+    # Hide bitten states briefly for clean preview of intact platter, plus render a bitten close-up!
+    for o in bpy.data.objects:
+        if "State1" in o.name or "State2" in o.name or "State3" in o.name:
+            o.hide_render = True
     render_previews(
         "sufganiyot",
         views=[("three_quarter", (0.24, -0.30, 0.24), 48.0)],
         target=(0.0, 0.0, 0.035),
+        res=(640, 512),
+        samples=32,
+    )
+    # Render bitten preview (show State1 on #5 top, State2 on #3 front-left, State3 on #4 front-right!)
+    for o in bpy.data.objects:
+        if o.name in ("Suf_5_State0", "Suf_3_State0", "Suf_4_State0"):
+            o.hide_render = True
+        if o.name in ("Suf_5_State1", "Suf_3_State2", "Suf_4_State3"):
+            o.hide_render = False
+    render_previews(
+        "sufganiyot_bitten",
+        views=[("three_quarter", (0.20, -0.26, 0.22), 52.0)],
+        target=(0.0, 0.0, 0.038),
         res=(640, 512),
         samples=32,
     )
@@ -341,24 +464,42 @@ def build_kiddush_cup():
         )
     )
 
-    # Glossy deep-ruby kosher wine 3D liquid volume filled generously near the brim (~6 mm below lip)
-    # with an authentic concave capillary meniscus climbing smoothly up the gold-washed silver inner wall!
-    # Kept as a separate named child mesh ("KosherWine_Liquid") so Three.js upgrades it to MeshPhysicalMaterial
-    # with true IOR 1.335 refraction, ruby attenuation, and crisp mirror candlelight reflections!
-    wine_z = z0 + 0.1515  # generous traditional Kiddush fill level (~8.5 mm below outer flared lip, clearly visible!)
-    wine_prof = [
-        (0.001, z0 + 0.080),       # deep interior bottom following inner bowl
-        (0.0175, z0 + 0.088),
-        (0.0278, z0 + 0.114),
-        (0.0308, z0 + 0.140),
-        (0.0332, wine_z + 0.0024), # capillary meniscus climbing up the inner gold-washed wall!
-        (0.0315, wine_z + 0.0006),
-        (0.0265, wine_z - 0.0004),
-        (0.0140, wine_z - 0.0007),
-        (0.0005, wine_z - 0.0008),
+    # Build 4 exact cup-conforming 3D wine meniscus levels (Level4=Full 100%, Level3=75%, Level2=50%, Level1=25%)
+    # so clicking the Kiddush cup drops the wine level smoothly sip-by-sip down to empty without ever clipping the tapered silver bowl!
+    # Inner bowl wall contour: (z_rel, r_wall) -> (0.076, 0.002), (0.086, 0.019), (0.112, 0.0288), (0.140, 0.0312), (0.159, 0.0352)
+    def inner_radius_at(z_rel):
+        pts = [(0.076, 0.002), (0.086, 0.0185), (0.112, 0.0282), (0.140, 0.0306), (0.159, 0.0346)]
+        for k in range(len(pts) - 1):
+            z_a, r_a = pts[k]
+            z_b, r_b = pts[k + 1]
+            if z_rel <= z_b or k == len(pts) - 2:
+                t = max(0.0, min(1.0, (z_rel - z_a) / max(1e-6, z_b - z_a)))
+                return r_a + (r_b - r_a) * t
+        return 0.033
+
+    wine_levels = [
+        (4, 0.1515),  # 100% full near brim
+        (3, 0.1365),  # 75% after 1st sip
+        (2, 0.1200),  # 50% after 2nd sip
+        (1, 0.1015),  # 25% last sip near bottom
     ]
-    wine_obj = create_lathe_mesh("KosherWine_Liquid", wine_prof, segments=56, cap_bottom=True, cap_top=True, mat=mat_wine)
-    set_smooth(wine_obj, 65.0)
+    for lvl, z_rel in wine_levels:
+        wz = z0 + z_rel
+        r_top = inner_radius_at(z_rel)
+        # Follow inner bowl up to wz, then concave capillary meniscus climbing up the gold-washed wall!
+        prof = [(0.001, z0 + 0.079)]
+        for z_step in (0.088, 0.102, 0.114, 0.128, 0.140):
+            if z_step < z_rel - 0.004:
+                prof.append((inner_radius_at(z_step), z0 + z_step))
+        prof.extend([
+            (r_top, wz + 0.0022),          # capillary meniscus edge against gold-washed wall
+            (r_top * 0.94, wz + 0.0005),
+            (r_top * 0.78, wz - 0.0004),
+            (r_top * 0.42, wz - 0.0007),
+            (0.0005, wz - 0.0008),
+        ])
+        w_obj = create_lathe_mesh(f"KosherWine_Level{lvl}", prof, segments=56, cap_bottom=True, cap_top=True, mat=mat_wine)
+        set_smooth(w_obj, 65.0)
 
     join_objects(parts, "Kiddush_Cup_Set")
     export_glb(os.path.join(MODELS_DIR, "kiddush_cup.glb"))

@@ -146,21 +146,92 @@ def generate_wood_textures():
     bump = np.clip((0.5 + 0.35 * grain + 2.0 * pores) * seam_mask * 255, 0, 255).astype(np.uint8)
     save_height_as_normal_map(Image.fromarray(bump), "walnut_normal.png", strength=1.8)
 
-    # 2. Hardwood floor planks (1024x1024, warm oak)
-    f_grain = 0.5 + 0.5 * np.sin(y * 160.0 + 3.0 * np.sin(x * 9.0 + y * 6.0))
-    plank_rows = np.floor(y * 10.0)
-    stagger = ((plank_rows % 2) * 0.5 + x * 2.0) % 1.0
-    plank_id = plank_rows * 3.1 + np.floor(((plank_rows % 2) * 0.5 + x * 2.0))
-    tone = 0.85 + 0.24 * (0.5 + 0.5 * np.sin(plank_id * 1.93))
-    y_seam = np.clip(np.abs(y * 10.0 - np.round(y * 10.0)) / 0.014, 0.22, 1.0)
-    x_seam = np.clip(np.minimum(stagger, 1.0 - stagger) / 0.008, 0.28, 1.0)
-    f_val = np.clip((0.36 + 0.34 * f_grain) * tone * y_seam * x_seam + pores * 0.7, 0.0, 1.0)
-    fr = np.clip(f_val * 162 + 32, 0, 255).astype(np.uint8)
-    fg = np.clip(f_val * 106 + 18, 0, 255).astype(np.uint8)
-    fb = np.clip(f_val * 62 + 10, 0, 255).astype(np.uint8)
-    save_img(Image.fromarray(np.stack([fr, fg, fb], axis=-1)), "floor_albedo.jpg", quality=90)
-    f_rough = np.clip((0.38 + 0.20 * (1.0 - f_grain)) * 255, 65, 220).astype(np.uint8)
-    save_img(Image.fromarray(f_rough), "floor_rough.jpg", quality=86)
+    # 2. Classic European Herringbone Oak Parquet Floor (1024x1024 seamless tile: albedo + rough + normal!)
+    # Exact interlocking 90-degree herringbone pattern (4:1 slat aspect ratio -> 32px wide x 128px long per oak block!)
+    # Tile repeats cleanly every 256px (4 herringbone cycles per 1024px tile, rotated 45 deg or classic orthogonal!).
+    pw, ph = 1024, 1024
+    bw = 32   # block width in px (tiles cleanly into 1024 = 32 * 32)
+    bl = 128  # block length in px (= 4 * bw)
+
+    yy_i, xx_i = np.mgrid[0:ph, 0:pw]
+    # Classic interlocking herringbone lattice using integer cell coordinates (gx, gy) of size bw x bw:
+    # A cell (gx, gy) belongs to a horizontal 4x1 block if ((gx + gy) % 2) determines staircase phase,
+    # specifically standard herringbone tiling:
+    # Let d = (gx - gy) mod 4 ->Wait: exact seamless herringbone tiling of 4x1 rectangles on Z^2:
+    # Diagonal band k = (gx + gy) // 4? Even cleaner: exact mathematical herringbone partition of Z^2 for 4x1 tiles!
+    # Every unit square (gx, gy) has diagonal coordinate s = (gx - gy) mod 8:
+    #   - If s in {0, 1, 2, 3}: HORIZONTAL tile of length 4 starting at x0 = gx - s, y0 = gy
+    #   - If s in {4, 5, 6, 7}: VERTICAL tile of length 4 starting at x0 = gx, y0 = gy - (s - 4)
+    # Check non-overlap & 100% coverage:
+    #   Horizontal tile at (x0, y0) covers (x0+0,y0),(x0+1,y0),(x0+2,y0),(x0+3,y0) -> s = 0,1,2,3!
+    #   Vertical tile at (x0, y0) covers (x0,y0+0),(x0,y0+1),(x0,y0+2),(x0,y0+3) -> s = 4,3? Wait: as y increases, gx-gy DECREASES!
+    #   So for vertical tile starting at y0, y = y0 + t (t=0..3), (gx - y) = (gx - y0) - t!
+    #   Thus if (gx - y0) mod 8 == 7, then t=0->7, t=1->6, t=2->5, t=3->4! ALL 4 cells have s in {4,5,6,7}!!
+    #   100% EXACT, MATHEMATICALLY WATERTIGHT, SEAMLESS 4:1 HERRINGBONE PARQUET TILING!!
+    gx = xx_i // bw
+    gy = yy_i // bw
+    fx = (xx_i % bw) / float(bw)  # 0..1 within cell
+    fy = (yy_i % bw) / float(bw)  # 0..1 within cell
+
+    s_diag = (gx - gy) % 8
+    is_horiz = s_diag < 4
+
+    # Local coordinates (u_long in [0, 1] along block length, v_across in [0, 1] across block width)
+    u_long = np.where(is_horiz, (s_diag + fx) / 4.0, ((7 - s_diag) + fy) / 4.0)
+    v_across = np.where(is_horiz, fy, fx)
+
+    # Unique deterministic block ID (bx, by) for per-slat natural oak color, grain offset & roughness!
+    bx = np.where(is_horiz, gx - s_diag, gx) % 32
+    by = np.where(is_horiz, gy, gy - (7 - s_diag)) % 32
+    block_hash = np.sin(bx * 12.9898 + by * 78.233) * 43758.5453
+    block_rand = block_hash - np.floor(block_hash)  # 0..1 uniform per block
+    block_hash2 = np.sin(bx * 39.346 + by * 11.135 + 1.7) * 24634.6345
+    block_rand2 = block_hash2 - np.floor(block_hash2)
+
+    # Rich European oak wood grain strictly aligned along each block's u_long axis!
+    ph1 = block_rand * 25.0
+    ph2 = block_rand2 * 18.0
+    grain_long = (
+        0.50 * np.sin(v_across * 22.0 + 1.8 * np.sin(u_long * 6.0 + ph1) + ph2)
+        + 0.30 * np.sin(v_across * 54.0 + 3.2 * np.sin(u_long * 13.0 - ph2) + ph1)
+        + 0.20 * np.sin(v_across * 110.0 + 1.4 * np.cos(u_long * 26.0 + ph1))
+    )
+    grain_long = (grain_long - grain_long.min()) / (grain_long.max() - grain_long.min())
+    # Fine subtle wood medullary pores & tiny natural satin streaks
+    fine_pores = rng.normal(0.0, 0.032, (ph, pw))
+    fine_pores = np.where(
+        is_horiz,
+        (fine_pores + np.roll(fine_pores, 1, axis=1) + np.roll(fine_pores, -1, axis=1)) / 3.0,
+        (fine_pores + np.roll(fine_pores, 1, axis=0) + np.roll(fine_pores, -1, axis=0)) / 3.0,
+    )
+
+    # Micro-beveled V-groove seams around all 4 edges of every single herringbone parquet slat!
+    edge_u = np.minimum(u_long, 1.0 - u_long) * 4.0  # normalized in cell-width units
+    edge_v = np.minimum(v_across, 1.0 - v_across)
+    edge_dist = np.minimum(edge_u, edge_v)
+    bevel_h = np.clip(edge_dist / 0.085, 0.0, 1.0)  # 0 right in the V-groove, 1 on flat block face!
+    groove_darken = 0.36 + 0.64 * (bevel_h ** 0.65)
+
+    # Varied warm European honey/amber/chestnut oak tones per block + subtle aged wear sheen
+    # Subtle room-scale patina variation
+    wear = 0.94 + 0.08 * np.sin(xx_i * 0.012) * np.cos(yy_i * 0.012)
+    tone = (0.76 + 0.34 * block_rand) * wear
+    oak_val = np.clip((0.34 + 0.36 * grain_long + fine_pores) * tone * groove_darken, 0.04, 1.0)
+
+    # Rich warm European oak palette (slightly warmer/deeper amber on darker blocks)
+    warm_shift = 0.88 + 0.22 * block_rand2
+    fr = np.clip((oak_val * 172.0 + 28.0) * (0.96 + 0.06 * warm_shift), 0, 255).astype(np.uint8)
+    fg = np.clip((oak_val * 114.0 + 16.0) * (0.94 + 0.06 * warm_shift), 0, 255).astype(np.uint8)
+    fb = np.clip((oak_val * 64.0 + 8.0), 0, 255).astype(np.uint8)
+    save_img(Image.fromarray(np.stack([fr, fg, fb], axis=-1)), "floor_albedo.jpg", quality=92)
+
+    # Varied satin lacquer roughness per parquet block (glossy satin wood 0.25..0.42, rougher in bevel grooves!)
+    f_rough = np.clip(0.24 + 0.16 * (1.0 - grain_long) + 0.08 * block_rand2 + 0.34 * (1.0 - bevel_h), 0.18, 0.85)
+    save_img(Image.fromarray((f_rough * 255).astype(np.uint8)), "floor_rough.jpg", quality=88)
+
+    # Crisp tangent-space normal map for herringbone V-grooves & fine oak wood-grain pores!
+    f_height = np.clip((0.18 + 0.72 * bevel_h + 0.10 * grain_long + fine_pores * 1.4) * 255.0, 0, 255).astype(np.uint8)
+    save_height_as_normal_map(Image.fromarray(f_height).filter(ImageFilter.GaussianBlur(0.7)), "floor_normal.png", strength=3.4)
 
 
 def generate_textile_textures():

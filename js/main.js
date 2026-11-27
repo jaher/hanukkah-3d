@@ -38,6 +38,7 @@ const ASSET_MANIFEST = [
   { key: 'candle_box', type: 'glb', url: 'assets/models/candle_box.glb', label: 'Hanukkah Candle Box & Matches' },
   { key: 'star_wall', type: 'glb', url: 'assets/models/star_wall.glb', label: 'Star of David Wall Medallion' },
   { key: 'star_window', type: 'glb', url: 'assets/models/star_window.glb', label: 'Window Star of David Ornament' },
+  { key: 'rebbe_portrait', type: 'glb', url: 'assets/models/rebbe_portrait.glb', label: 'Framed Portrait of the Lubavitcher Rebbe' },
   { key: 'room_lightmap', type: 'texture', url: 'assets/textures/room_lightmap.jpg', label: 'Room GI/AO Lightmap', flipY: false },
   { key: 'table_lightmap', type: 'texture', url: 'assets/textures/table_lightmap.jpg', label: 'Table GI/AO Lightmap', flipY: false },
   { key: 'winter_backdrop', type: 'texture', url: 'assets/textures/winter_night_backdrop.jpg', label: 'Winter Night Sky Panorama', flipY: true },
@@ -182,6 +183,14 @@ class HanukkahApp {
     };
     this.toastTimer = null;
 
+    // Interactive sufganiyot bite states & kiddush cup wine sip state
+    this.sufganiyotItems = []; // [{ id, states: [obj0..obj3], state: 0..4, popTimer: 0 }]
+    this.sufganiyotPlatter = null;
+    this.kiddushRoot = null;
+    this.wineLevels = {}; // { 1: mesh, 2: mesh, 3: mesh, 4: mesh }
+    this.wineLevel = 4;   // 4 = full .. 0 = empty
+    this.wineSipAnim = 0;
+
     // Subtle traditional Hanukkah music player (starts on first click/tap anywhere, toggleable on/off)
     this.musicPlayer = new HanukkahMusicPlayer((state) => this.updateMusicHUD(state));
     this.musicFirstTouchHandled = false;
@@ -199,6 +208,8 @@ class HanukkahApp {
       setAutoNight: () => this.selectAutoNight(),
       setCamera: (preset, instant = false) => this.goToCamera(preset, instant),
       spinDreidel: () => this.triggerDreidelSpin(),
+      biteSufganiyah: (idx = 4) => this.biteSufganiyah(idx),
+      sipWine: () => this.sipKiddushWine(),
       toggleMusic: () => this.musicPlayer.toggle(),
       nextTrack: () => this.musicPlayer.nextTrack(),
       getState: () => ({
@@ -208,6 +219,8 @@ class HanukkahApp {
         calendar: this.calendarInfo,
         musicPlaying: this.musicPlayer.isPlaying,
         musicTrack: this.musicPlayer.currentTrack.title,
+        wineLevel: this.wineLevel,
+        sufganiyotStates: this.sufganiyotItems.map((s) => s.state),
       }),
     };
   }
@@ -499,36 +512,52 @@ class HanukkahApp {
     this.scene.add(gelt);
 
     // Sufganiyot Jelly Doughnuts on Blue-and-White Porcelain Platter (right foreground)
+    // Each doughnut has 4 sculpted bite states (0=whole, 1=1 bite, 2=2 bites, 3=final morsel, 4=eaten)
     const sufganiyot = enableShadows(assets.models.sufganiyot.scene, 1.1);
     sufganiyot.position.set(0.39, TABLE_Y, -0.09);
     sufganiyot.rotation.y = -0.35;
+    this.sufganiyotPlatter = sufganiyot.getObjectByName('PorcelainPlatter') || sufganiyot;
+    for (let i = 1; i <= 5; i++) {
+      const states = [0, 1, 2, 3].map((st) => sufganiyot.getObjectByName(`Suf_${i}_State${st}`)).filter(Boolean);
+      states.forEach((obj, idx) => {
+        obj.visible = idx === 0;
+        obj.userData.sufIndex = i - 1;
+      });
+      if (states.length) {
+        this.sufganiyotItems.push({ id: i, states, state: 0, popTimer: 0 });
+      }
+    }
     this.scene.add(sufganiyot);
 
-    // Sterling Silver Kiddush Cup & Saucer filled with Physically-Based Transparent Red Kosher Wine!
+    // Sterling Silver Kiddush Cup & Saucer filled with Sip-by-Sip Physically-Based Transparent Red Wine!
     const kiddush = enableShadows(assets.models.kiddush_cup.scene, 1.48);
     kiddush.position.set(0.31, RUNNER_Y, -0.46);
+    this.kiddushRoot = kiddush;
+    const redWineMat = new THREE.MeshPhysicalMaterial({
+      color: new THREE.Color(0x4a040e),
+      roughness: 0.025,
+      metalness: 0.0,
+      transmission: 0.66,
+      ior: 1.335,
+      thickness: 0.042,
+      attenuationColor: new THREE.Color(0x9e081c),
+      attenuationDistance: 0.022,
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.015,
+      reflectivity: 0.92,
+      envMapIntensity: 2.1,
+      transparent: true,
+    });
     kiddush.traverse((obj) => {
       if (!obj.isMesh) return;
-      if (obj.name.includes('KosherWine_Liquid')) {
-        // Real physically-based red wine: deep ruby-garnet transmission, optical IOR 1.335 refraction,
-        // translucent glowing crimson meniscus against the gold-washed silver bowl, and mirror-like candlelight reflections!
-        obj.material = new THREE.MeshPhysicalMaterial({
-          color: new THREE.Color(0x4a040e),
-          roughness: 0.025,
-          metalness: 0.0,
-          transmission: 0.66,
-          ior: 1.335,
-          thickness: 0.042,
-          attenuationColor: new THREE.Color(0x9e081c),
-          attenuationDistance: 0.022,
-          clearcoat: 1.0,
-          clearcoatRoughness: 0.015,
-          reflectivity: 0.92,
-          envMapIntensity: 2.1,
-          transparent: true,
-        });
+      const m = obj.name.match(/KosherWine_Level(\d)/);
+      if (m) {
+        const lvl = Number(m[1]);
+        obj.material = redWineMat;
         obj.castShadow = false;
         obj.receiveShadow = false;
+        obj.visible = lvl === 4;
+        this.wineLevels[lvl] = obj;
       }
     });
     this.scene.add(kiddush);
@@ -573,13 +602,25 @@ class HanukkahApp {
       this.votiveFlames.push(vf);
     });
 
-    // Ornate Brushed-Silver & Cobalt Star of David Wall Medallions (cleanly clear of outer curtain folds!)
-    const starWall = enableShadows(assets.models.star_wall.scene, 1.35);
-    starWall.position.set(-1.84, 1.28, -2.18);
-    this.scene.add(starWall);
+    // Respectful Ornate Baroque Gilded Framed Portrait of the Lubavitcher Rebbe (Rabbi Menachem Mendel Schneerson)
+    // Mounted prominently on the left-back wall under the warm sconce light!
+    const rebbePortrait = enableShadows(assets.models.rebbe_portrait.scene, 1.35);
+    rebbePortrait.position.set(-1.92, 1.44, -2.18);
+    rebbePortrait.traverse((obj) => {
+      if (obj.isMesh && obj.name.includes('Portrait_Glass')) {
+        obj.material.transparent = true;
+        obj.material.opacity = 0.08;
+        obj.material.roughness = 0.05;
+        obj.material.depthWrite = false;
+        obj.castShadow = false;
+        obj.receiveShadow = false;
+      }
+    });
+    this.scene.add(rebbePortrait);
 
-    const starWallR = enableShadows(assets.models.star_wall.scene.clone(), 1.35);
-    starWallR.position.set(1.84, 1.28, -2.18);
+    // Ornate Brushed-Silver & Cobalt Star of David Wall Medallion symmetrically on right side of window
+    const starWallR = enableShadows(assets.models.star_wall.scene, 1.35);
+    starWallR.position.set(1.88, 1.40, -2.18);
     this.scene.add(starWallR);
 
     // Hanging Crystalline & Silver Star of David Ornament in the Winter Window
@@ -846,14 +887,80 @@ class HanukkahApp {
     }
   }
 
-  showDreidelToast(outcome) {
+  showActionToast(symbol, title, detail) {
     const toast = document.getElementById('dreidel-toast');
-    document.getElementById('dreidel-letter').textContent = outcome.letter;
-    document.getElementById('dreidel-name').textContent = outcome.name;
-    document.getElementById('dreidel-meaning').textContent = outcome.meaning;
+    document.getElementById('dreidel-letter').textContent = symbol;
+    document.getElementById('dreidel-name').textContent = title;
+    document.getElementById('dreidel-meaning').textContent = detail;
     toast.classList.remove('hidden');
     if (this.toastTimer) clearTimeout(this.toastTimer);
-    this.toastTimer = setTimeout(() => toast.classList.add('hidden'), 5200);
+    this.toastTimer = setTimeout(() => toast.classList.add('hidden'), 4200);
+  }
+
+  showDreidelToast(outcome) {
+    this.showActionToast(outcome.letter, outcome.name, outcome.meaning);
+  }
+
+  biteSufganiyah(index) {
+    const item = this.sufganiyotItems[index];
+    if (!item) return;
+    if (item.state >= 4) return;
+
+    item.state += 1;
+    item.popTimer = 0.24;
+    item.states.forEach((obj, idx) => {
+      obj.visible = idx === item.state;
+    });
+
+    const msgs = [
+      null,
+      ['🍩', 'First Bite!', 'Fluffy brioche & ruby strawberry jam inside — click again for another bite'],
+      ['🍩', 'Second Bite!', 'Halfway through this fresh sufganiyah'],
+      ['🍩', 'Almost Gone!', 'One last powdered-sugar morsel left'],
+      ['✨', 'Sufganiyah Finished!', 'Click another doughnut—or click the platter when empty to serve more'],
+    ];
+    const [sym, title, desc] = msgs[item.state];
+    this.showActionToast(sym, title, desc);
+  }
+
+  refillSufganiyotIfEmpty() {
+    if (!this.sufganiyotItems.length) return;
+    const allEaten = this.sufganiyotItems.every((s) => s.state >= 4);
+    if (!allEaten) return;
+    for (const item of this.sufganiyotItems) {
+      item.state = 0;
+      item.popTimer = 0.28;
+      item.states.forEach((obj, idx) => {
+        obj.visible = idx === 0;
+      });
+    }
+    this.showActionToast('🍩', 'Fresh Sufganiyot Served!', 'Five warm powdered-sugar jelly doughnuts ready to enjoy');
+  }
+
+  sipKiddushWine() {
+    if (this.wineLevel > 0) {
+      this.wineLevel -= 1;
+      this.wineSipAnim = 0.36;
+      for (const [lvlStr, mesh] of Object.entries(this.wineLevels)) {
+        mesh.visible = Number(lvlStr) === this.wineLevel;
+      }
+      const labels = {
+        3: ["🍷", "L'Chaim! (1st Sip)", 'Kiddush cup is ¾ full — click again for another sip'],
+        2: ["🍷", "L'Chaim! (2nd Sip)", 'Half a cup of kosher red wine remaining'],
+        1: ["🍷", "L'Chaim! (3rd Sip)", 'One last sip left in the silver goblet'],
+        0: ["✨", "L'Chaim! Cup Empty", 'Every drop enjoyed — click the Kiddush cup again to refill'],
+      };
+      const [sym, title, desc] = labels[this.wineLevel];
+      this.showActionToast(sym, title, desc);
+    } else {
+      // Refill cup smoothly when clicked while empty
+      this.wineLevel = 4;
+      this.wineSipAnim = 0.36;
+      for (const [lvlStr, mesh] of Object.entries(this.wineLevels)) {
+        mesh.visible = Number(lvlStr) === 4;
+      }
+      this.showActionToast('🍷', 'Kiddush Cup Refilled', 'Brimming with deep ruby kosher red wine');
+    }
   }
 
   bindHUD() {
@@ -893,24 +1000,85 @@ class HanukkahApp {
     document.getElementById('btn-toggle-hud').addEventListener('click', toggleHud);
     document.getElementById('btn-show-hud').addEventListener('click', toggleHud);
 
-    // Click directly on any interactive dreidel on the table to spin it!
+    // Click directly on any interactive object in the room:
+    // 1. Playable dreidel -> spin upright & topple sideways
+    // 2. Sufganiyah -> take progressive bites exposing crumb & ruby jam (or refill empty platter)
+    // 3. Kiddush cup / wine -> sip the red wine down level by level until empty (click again to refill)
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
     let pointerDownPos = null;
+
+    const getInteractiveTargets = () => {
+      const targets = [];
+      for (const rig of this.interactiveDreidels) targets.push(rig.pivot);
+      for (const item of this.sufganiyotItems) {
+        if (item.state < 4 && item.states[item.state]) targets.push(item.states[item.state]);
+      }
+      if (this.sufganiyotPlatter) targets.push(this.sufganiyotPlatter);
+      if (this.kiddushRoot) targets.push(this.kiddushRoot);
+      return targets;
+    };
+
+    this.canvas.addEventListener('pointermove', (e) => {
+      if (!this.isLoaded) return;
+      pointer.x = (e.clientX / window.innerWidth) * 2 - 1;
+      pointer.y = -(e.clientY / window.innerHeight) * 2 + 1;
+      raycaster.setFromCamera(pointer, this.camera);
+      const hits = raycaster.intersectObjects(getInteractiveTargets(), true);
+      this.canvas.style.cursor = hits.length > 0 ? 'pointer' : 'grab';
+    });
+
     this.canvas.addEventListener('pointerdown', (e) => {
       pointerDownPos = { x: e.clientX, y: e.clientY };
     });
+
     this.canvas.addEventListener('pointerup', (e) => {
-      if (!pointerDownPos || !this.interactiveDreidels.length) return;
+      if (!pointerDownPos) return;
       const dist = Math.hypot(e.clientX - pointerDownPos.x, e.clientY - pointerDownPos.y);
       if (dist > 6) return;
       pointer.x = (e.clientX / window.innerWidth) * 2 - 1;
       pointer.y = -(e.clientY / window.innerHeight) * 2 + 1;
       raycaster.setFromCamera(pointer, this.camera);
+
+      const hits = raycaster.intersectObjects(getInteractiveTargets(), true);
+      if (!hits.length) return;
+      const hitObj = hits[0].object;
+
+      // Check Kiddush cup / wine first if hit
+      if (this.kiddushRoot) {
+        let cur = hitObj;
+        while (cur) {
+          if (cur === this.kiddushRoot) {
+            this.sipKiddushWine();
+            return;
+          }
+          cur = cur.parent;
+        }
+      }
+
+      // Check individual sufganiyot (visible bite states)
+      let curSuf = hitObj;
+      while (curSuf) {
+        if (typeof curSuf.userData?.sufIndex === 'number') {
+          this.biteSufganiyah(curSuf.userData.sufIndex);
+          return;
+        }
+        if (curSuf === this.sufganiyotPlatter) {
+          this.refillSufganiyotIfEmpty();
+          return;
+        }
+        curSuf = curSuf.parent;
+      }
+
+      // Check interactive dreidels
       for (const rig of this.interactiveDreidels) {
-        if (raycaster.intersectObject(rig.pivot, true).length > 0) {
-          this.triggerDreidelSpin(rig);
-          break;
+        let cur = hitObj;
+        while (cur) {
+          if (cur === rig.pivot) {
+            this.triggerDreidelSpin(rig);
+            return;
+          }
+          cur = cur.parent;
         }
       }
     });
@@ -1064,6 +1232,23 @@ class HanukkahApp {
         pivot.position.y = baseY + 0.0155;
         this.showDreidelToast(st.outcome);
       }
+    }
+
+    // 3b. Subtle playful bounce feedback on bitten sufganiyot & gentle sip motion on Kiddush cup
+    for (const item of this.sufganiyotItems) {
+      if (item.popTimer > 0) {
+        item.popTimer = Math.max(0, item.popTimer - dt);
+        const s = 1.0 + 0.08 * Math.sin((item.popTimer / 0.24) * Math.PI);
+        const curMesh = item.states[item.state];
+        if (curMesh) curMesh.scale.setScalar(s);
+      }
+    }
+    if (this.wineSipAnim > 0 && this.kiddushRoot) {
+      this.wineSipAnim = Math.max(0, this.wineSipAnim - dt);
+      const u = this.wineSipAnim / 0.36;
+      const lift = Math.sin(u * Math.PI);
+      this.kiddushRoot.position.y = RUNNER_Y + 0.012 * lift;
+      this.kiddushRoot.rotation.z = 0.06 * lift;
     }
 
     // 4. Smooth eased camera transitions
