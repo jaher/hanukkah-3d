@@ -11,16 +11,16 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { GatedAssetLoader } from './asset-loader.js?v=20261127-1';
-import { computeHanukkahNight, HANUKKAH_2026_NIGHT_DATES } from './hanukkah-calendar.js?v=20261127-1';
-import { CandleFlameRig } from './flames.js?v=20261127-1';
-import { createWinterNightExterior } from './winter-window.js?v=20261127-1';
-import { HanukkahMusicPlayer } from './hanukkah-music.js?v=20261127-1';
-import { RoomSoundEffects } from './sfx.js?v=20261127-1';
-import { GeltCoinPhysics } from './coin-physics.js?v=20261127-1';
-import { ChallahClothCover } from './phys-cloth.js?v=20261127-1';
+import { GatedAssetLoader } from './asset-loader.js?v=20261127-2';
+import { computeHanukkahNight, HANUKKAH_2026_NIGHT_DATES } from './hanukkah-calendar.js?v=20261127-2';
+import { CandleFlameRig } from './flames.js?v=20261127-2';
+import { createWinterNightExterior } from './winter-window.js?v=20261127-2';
+import { HanukkahMusicPlayer } from './hanukkah-music.js?v=20261127-2';
+import { RoomSoundEffects } from './sfx.js?v=20261127-2';
+import { GeltCoinPhysics } from './coin-physics.js?v=20261127-2';
+import { ChallahClothCover } from './phys-cloth.js?v=20261127-2';
 
-const ASSET_VERSION = '20261127-1';
+const ASSET_VERSION = '20261127-2';
 const vUrl = (path) => `${path}?v=${ASSET_VERSION}`;
 
 // Exact world heights matching Blender exports (1 unit = 1 meter)
@@ -268,24 +268,37 @@ class HanukkahApp {
   }
 
   bindFirstTouchMusic() {
-    // Start traditional Hanukkah holiday music automatically on the user's very first click/tap/key anywhere
-    // (unless they directly clicked the Music Off button itself).
-    const onFirstTouch = (e) => {
-      if (this.musicFirstTouchHandled) return;
+    // Music is ON by default: attempt autoplay immediately on page load, and unlock on the very first
+    // user gesture (pointer/touch/click/key) if the browser blocked immediate autoplay with sound.
+    this.musicPlayer.tryAutoplay();
+
+    const onFirstGesture = (e) => {
+      if (!this.musicPlayer.isPlaying || this.musicPlayer.schedulerRunning) {
+        cleanup();
+        return;
+      }
+      // If the user explicitly clicked the Music toggle to turn it off, let its click handler turn it off
       if (e.target && e.target.closest && (e.target.closest('#btn-music') || e.target.closest('#btn-cancel'))) {
         return;
       }
-      this.musicFirstTouchHandled = true;
-      window.removeEventListener('pointerdown', onFirstTouch, true);
-      window.removeEventListener('touchstart', onFirstTouch, true);
-      window.removeEventListener('keydown', onFirstTouch, true);
-      if (!this.musicPlayer.isPlaying) {
-        this.musicPlayer.start().catch(() => {});
-      }
+      this.musicPlayer.unlockFromGesture().then(() => {
+        if (this.musicPlayer.schedulerRunning || !this.musicPlayer.isPlaying) {
+          cleanup();
+        }
+      });
     };
-    window.addEventListener('pointerdown', onFirstTouch, { capture: true, passive: true });
-    window.addEventListener('touchstart', onFirstTouch, { capture: true, passive: true });
-    window.addEventListener('keydown', onFirstTouch, { capture: true, passive: true });
+
+    const cleanup = () => {
+      window.removeEventListener('pointerdown', onFirstGesture, true);
+      window.removeEventListener('touchstart', onFirstGesture, true);
+      window.removeEventListener('click', onFirstGesture, true);
+      window.removeEventListener('keydown', onFirstGesture, true);
+    };
+
+    window.addEventListener('pointerdown', onFirstGesture, { capture: true, passive: true });
+    window.addEventListener('touchstart', onFirstGesture, { capture: true, passive: true });
+    window.addEventListener('click', onFirstGesture, { capture: true, passive: true });
+    window.addEventListener('keydown', onFirstGesture, { capture: true, passive: true });
   }
 
   bindLoadingUI() {

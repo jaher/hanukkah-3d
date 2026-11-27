@@ -24,7 +24,7 @@ export class RoomSoundEffects {
   /** Pre-fetch the real male "L'chaim!" recording (assets/audio/lchaim.wav) so toast playback is instantaneous! */
   preloadLchaimAudio() {
     if (typeof fetch !== 'function') return;
-    this.lchaimRawPromise = fetch('assets/audio/lchaim.wav?v=20261127-1')
+    this.lchaimRawPromise = fetch('assets/audio/lchaim.wav?v=20261127-2')
       .then((res) => (res.ok ? res.arrayBuffer() : null))
       .catch(() => null);
   }

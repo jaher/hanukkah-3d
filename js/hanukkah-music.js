@@ -138,7 +138,8 @@ export class HanukkahMusicPlayer {
     this.masterGain = null;
     this.dryGain = null;
     this.wetGain = null;
-    this.isPlaying = false;
+    this.isPlaying = true;         // ON by default!
+    this.schedulerRunning = false; // true once AudioContext is running and notes are actively scheduled
     this.trackIndex = 0;
     this.noteIndex = 0;
     this.timerId = null;
@@ -253,14 +254,10 @@ export class HanukkahMusicPlayer {
     this.timerId = window.setTimeout(() => this.scheduleNext(), Math.max(60, durSec * 1000));
   }
 
-  async start() {
-    this.ensureContext();
-    if (!this.ctx) return;
-    if (this.ctx.state === 'suspended') {
-      await this.ctx.resume();
-    }
-    if (this.isPlaying) return;
-    this.isPlaying = true;
+  beginPlayback() {
+    if (!this.isPlaying || !this.ctx || this.ctx.state !== 'running') return;
+    if (this.schedulerRunning) return;
+    this.schedulerRunning = true;
     const now = this.ctx.currentTime;
     this.masterGain.gain.cancelScheduledValues(now);
     this.masterGain.gain.setValueAtTime(Math.max(0.0001, this.masterGain.gain.value), now);
@@ -269,8 +266,60 @@ export class HanukkahMusicPlayer {
     this.scheduleNext();
   }
 
+  /** Attempt immediate autoplay on load; if blocked by browser policy, stays armed (isPlaying=true) for first gesture. */
+  tryAutoplay() {
+    this.isPlaying = true;
+    this.emitState();
+    this.ensureContext();
+    if (!this.ctx) return;
+    if (this.ctx.state === 'running') {
+      this.beginPlayback();
+    } else if (this.ctx.state === 'suspended') {
+      this.ctx.resume().then(() => {
+        if (this.isPlaying && this.ctx && this.ctx.state === 'running') {
+          this.beginPlayback();
+        }
+      }).catch(() => {});
+    }
+  }
+
+  /** Called inside a user gesture to unlock AudioContext when default-ON music was waiting on autoplay policy. */
+  async unlockFromGesture() {
+    if (!this.isPlaying || this.schedulerRunning) return;
+    this.ensureContext();
+    if (!this.ctx) return;
+    if (this.ctx.state === 'suspended') {
+      try {
+        await this.ctx.resume();
+      } catch (_) {
+        return;
+      }
+    }
+    if (this.isPlaying && this.ctx.state === 'running') {
+      this.beginPlayback();
+    }
+  }
+
+  async start() {
+    this.isPlaying = true;
+    this.emitState();
+    this.ensureContext();
+    if (!this.ctx) return;
+    if (this.ctx.state === 'suspended') {
+      try {
+        await this.ctx.resume();
+      } catch (_) {
+        return;
+      }
+    }
+    if (this.isPlaying && this.ctx.state === 'running') {
+      this.beginPlayback();
+    }
+  }
+
   stop() {
     this.isPlaying = false;
+    this.schedulerRunning = false;
     if (this.timerId) {
       clearTimeout(this.timerId);
       this.timerId = null;
@@ -296,9 +345,16 @@ export class HanukkahMusicPlayer {
     this.trackIndex = (this.trackIndex + 1) % TRACKS.length;
     this.noteIndex = 0;
     if (this.isPlaying) {
-      if (this.timerId) clearTimeout(this.timerId);
+      if (this.timerId) {
+        clearTimeout(this.timerId);
+        this.timerId = null;
+      }
       this.emitState();
-      this.scheduleNext();
+      if (this.schedulerRunning) {
+        this.scheduleNext();
+      } else {
+        await this.unlockFromGesture();
+      }
     } else {
       await this.start();
     }
