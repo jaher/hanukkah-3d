@@ -689,18 +689,19 @@ def build_challah_and_cover():
     bpy.ops.object.modifier_apply(modifier="Solidify")
     set_smooth(cover_obj, 50.0)
     cover_obj.data.materials.append(mat_cover)
-    parts.append(cover_obj)
-
-    # Silver corner tassels on the 4 corners of the draped challah cover
+    # Keep ChallahCover + tassels as a separate named object ("Challah_Cover_Group") so clicking the challah
+    # smoothly lifts/uncovers the embroidered cover to reveal the braided golden challah loaf underneath!
+    cover_parts = [cover_obj]
     for ci, cj in [(0, 0), (nx, 0), (0, ny), (nx, ny)]:
         co = cover_obj.data.vertices[cj * (nx + 1) + ci].co
         t_pts = [
             Vector((co.x, co.y, co.z)),
             Vector((co.x + (0.010 if ci == nx else -0.010), co.y + (0.008 if cj == ny else -0.008), max(0.002, co.z - 0.008))),
         ]
-        parts.append(create_tube_along_points(f"Tassel_{ci}_{cj}", t_pts, radii=[0.0022, 0.0042], radial_segs=10, mat=mat_tassel))
+        cover_parts.append(create_tube_along_points(f"Tassel_{ci}_{cj}", t_pts, radii=[0.0022, 0.0042], radial_segs=10, mat=mat_tassel))
 
-    join_objects(parts, "Challah_Set")
+    join_objects(parts, "Challah_Loaf_Board")
+    join_objects(cover_parts, "Challah_Cover_Group")
     export_glb(os.path.join(MODELS_DIR, "challah.glb"))
 
     render_previews(

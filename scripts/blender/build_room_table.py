@@ -303,35 +303,55 @@ def build_dining_table():
     export_glb(os.path.join(MODELS_DIR, "table.glb"))
 
 
-def build_curtain_panel(name, x_center, y_pos, z_bot, z_top, width, mat, tie_side=1.0):
-    """Build a richly pleated royal-blue velvet curtain panel gathered gently with a tieback."""
-    nx, nz = 28, 30
+def build_curtain_panel(name, x_center, y_pos, z_bot, z_top, width, mat, tie_side=1.0, mat_tie=None, mat_ring=None):
+    """Build a richly pleated, tailored woven-textile curtain panel with organic multi-harmonic folds,
+    pinch-pleat header, silver rod rings, real cloth thickness, and a braided tieback cord."""
+    nx, nz = 56, 52
     bm = bmesh.new()
     uv_l = bm.loops.layers.uv.new("UVMap")
     grid = []
+    tie_vt = 0.36
     for j in range(nz + 1):
         vt = j / nz
         z = z_bot + vt * (z_top - z_bot)
-        # Graceful hourglass cinch around tieback height (vt ~ 0.38)
-        cinch = math.exp(-((vt - 0.36) / 0.16) ** 2)
-        w_local = width * (1.0 - 0.36 * cinch)
-        shift_x = tie_side * 0.075 * cinch
+        # Graceful hourglass cinch at tieback + gentle floor-kissing fullness at bottom hem!
+        cinch = math.exp(-((vt - tie_vt) / 0.15) ** 2)
+        floor_flare = 0.10 * math.exp(-((vt) / 0.12) ** 2)
+        top_pinch = math.exp(-((1.0 - vt) / 0.09) ** 2)
+        w_local = width * (1.0 - 0.34 * cinch + floor_flare - 0.05 * top_pinch)
+        shift_x = tie_side * 0.062 * cinch
         row = []
         for i in range(nx + 1):
             ut = i / nx
-            # Deep vertical velvet drapery folds
-            pleat = 0.042 * math.sin(ut * math.pi * 7.0) * (0.75 + 0.25 * (1.0 - vt))
-            x = x_center + shift_x + (ut - 0.5) * w_local
-            y = y_pos + pleat - 0.015 * cinch
+            # Multi-harmonic organic fabric folds (deep tailored pleats + softer secondary drapery waves + gentle cloth crinkle!)
+            primary = math.sin(ut * math.pi * 7.0 + 0.18 * math.sin(vt * math.pi * 2.0))
+            secondary = 0.28 * math.sin(ut * math.pi * 14.0 - vt * 2.4 + tie_side * 0.8)
+            micro = 0.08 * math.cos(ut * math.pi * 23.0 + vt * 5.2) * (1.0 - 0.6 * top_pinch)
+            # Soft inward curl along both stitched vertical hem edges so edges look tailored, not paper-flat!
+            edge_curl = 0.014 * (math.exp(-ut / 0.05) + math.exp(-(1.0 - ut) / 0.05))
+            pleat_amp = 0.044 * (0.72 + 0.34 * (1.0 - vt) + 0.16 * cinch)
+            pleat = pleat_amp * (primary + secondary + micro) + edge_curl
+
+            # Slight horizontal gather compression in troughs so cloth has natural draped spacing
+            x_gather = 0.008 * math.cos(ut * math.pi * 7.0) * (0.4 + 0.6 * cinch)
+            x = x_center + shift_x + (ut - 0.5) * w_local + x_gather
+            y = y_pos + pleat - 0.018 * cinch - 0.012 * floor_flare
             row.append(bm.verts.new((x, y, z)))
         grid.append(row)
 
+    # Tiled UV scale (u*2.8, v*8.2) so the woven fabric weave reads crisply at true physical thread scale!
+    u_rep, v_rep = 2.8, 8.2
     for j in range(nz):
         for i in range(nx):
             f = bm.faces.new((grid[j][i], grid[j][i + 1], grid[j + 1][i + 1], grid[j + 1][i]))
             for loop, uv in zip(
                 f.loops,
-                [(i / nx, j / nz), ((i + 1) / nx, j / nz), ((i + 1) / nx, (j + 1) / nz), (i / nx, (j + 1) / nz)],
+                [
+                    (i / nx * u_rep, j / nz * v_rep),
+                    ((i + 1) / nx * u_rep, j / nz * v_rep),
+                    ((i + 1) / nx * u_rep, (j + 1) / nz * v_rep),
+                    (i / nx * u_rep, (j + 1) / nz * v_rep),
+                ],
             ):
                 loop[uv_l].uv = uv
 
@@ -341,13 +361,42 @@ def build_curtain_panel(name, x_center, y_pos, z_bot, z_top, width, mat, tie_sid
     bm.free()
     obj = bpy.data.objects.new(name, mesh)
     bpy.context.collection.objects.link(obj)
+    # Real tailored drapery thickness (8.5 mm double-lined fabric heft!)
     sol = obj.modifiers.new("Solidify", 'SOLIDIFY')
-    sol.thickness = 0.006
+    sol.thickness = 0.0085
+    sol.offset = 0.0
     bpy.context.view_layer.objects.active = obj
     bpy.ops.object.modifier_apply(modifier="Solidify")
-    set_smooth(obj, 55.0)
+    set_smooth(obj, 62.0)
     obj.data.materials.append(mat)
-    return obj
+
+    parts = [obj]
+
+    # Woven braided tieback cord hugging the cinched waist so the drapery gather looks physically supported!
+    if mat_tie:
+        z_tie = z_bot + tie_vt * (z_top - z_bot)
+        w_tie = width * (1.0 - 0.34) * 0.52
+        cx_tie = x_center + tie_side * 0.062
+        tie_pts = []
+        for k in range(20):
+            ang = -math.pi * 0.15 + (k / 19.0) * math.pi * 1.30
+            tx = cx_tie + math.cos(ang) * (w_tie + 0.012)
+            ty = y_pos - 0.018 - math.sin(ang) * 0.056
+            tz = z_tie + 0.014 * math.cos(ang * 2.0)
+            tie_pts.append(Vector((tx, ty, tz)))
+        parts.append(create_tube_along_points(name + "_Tieback", tie_pts, radii=0.009, radial_segs=10, mat=mat_tie))
+
+    # Brushed silver curtain rings sliding along the rod above each top pleat crest!
+    if mat_ring:
+        for k in range(6):
+            rx = x_center + ((k / 5.0) - 0.5) * (width * 0.88)
+            ring_pts = []
+            for s in range(17):
+                a = 2.0 * math.pi * s / 16.0
+                ring_pts.append(Vector((rx, y_pos - 0.01 + 0.022 * math.cos(a), z_top + 0.010 + 0.022 * math.sin(a))))
+            parts.append(create_tube_along_points(f"{name}_Ring_{k}", ring_pts, radii=0.0036, radial_segs=8, cap_ends=False, mat=mat_ring))
+
+    return join_objects(parts, name)
 
 
 def make_profile_molding(name, p_start, p_end, profile_out_z, normal_dir, mat, cap_ends=True):
@@ -576,9 +625,19 @@ def build_room():
     )
     mat_curtain = make_pbr_material(
         "RoyalVelvetCurtain",
-        base_color=(0.06, 0.14, 0.36, 1.0),
-        metallic=0.02,
-        roughness=0.82,
+        metallic=0.0,
+        roughness=0.84,
+        specular=0.28,
+        color_tex_path=os.path.join(TEXTURES_DIR, "curtain_albedo.jpg"),
+        rough_tex_path=os.path.join(TEXTURES_DIR, "curtain_rough.jpg"),
+        bump_tex_path=os.path.join(TEXTURES_DIR, "curtain_normal.png"),
+        bump_strength=1.15,
+    )
+    mat_curtain_tie = make_pbr_material(
+        "CurtainTiebackCord",
+        base_color=(0.76, 0.68, 0.48, 1.0),
+        metallic=0.22,
+        roughness=0.58,
     )
     mat_silver = make_pbr_material(
         "BrushedSilverHardware",
@@ -631,46 +690,48 @@ def build_room():
     static_arch.append(make_box("WinWallTop", 0.0, yc, wz1 + top_h * 0.5, wx * 2.0, wall_t, top_h, mat_wall_navy, uv_scale=0.4))
 
     # 4. CLASSICAL CARVED ARCHITECTURAL MILLWORK & PROFILED MOLDINGS
-    # Wainscot lower wood backing (Z = 0.0 .. 0.87 on window wall, 0.0 .. 0.90 on side walls)
-    static_arch.append(make_box("WainscotWin", 0.0, Y_WIN - 0.010, 0.43, W_HALF * 2, 0.020, 0.86, mat_trim_white, uv_scale=0.5))
-    static_arch.append(make_box("WainscotLeft", -W_HALF + 0.010, (Y_WIN + Y_BACK) * 0.5, 0.45, 0.020, Y_WIN - Y_BACK, 0.90, mat_trim_white, uv_scale=0.5))
-    static_arch.append(make_box("WainscotRight", W_HALF - 0.010, (Y_WIN + Y_BACK) * 0.5, 0.45, 0.020, Y_WIN - Y_BACK, 0.90, mat_trim_white, uv_scale=0.5))
+    # Wainscot lower wood backing — height stops cleanly at Z = 0.805 on window wall (zero sill overlap!)
+    static_arch.append(make_box("WainscotWin", 0.0, Y_WIN - 0.011, 0.402, W_HALF * 2, 0.020, 0.804, mat_trim_white, uv_scale=0.5))
+    static_arch.append(make_box("WainscotLeft", -W_HALF + 0.011, (Y_WIN + Y_BACK) * 0.5, 0.45, 0.020, Y_WIN - Y_BACK, 0.90, mat_trim_white, uv_scale=0.5))
+    static_arch.append(make_box("WainscotRight", W_HALF - 0.011, (Y_WIN + Y_BACK) * 0.5, 0.45, 0.020, Y_WIN - Y_BACK, 0.90, mat_trim_white, uv_scale=0.5))
 
     # A. Tall Multi-Stepped Georgian Baseboards (quarter-round shoe + plinth + ogee cap!)
     baseboard_prof = [
         (0.000, 0.000),
-        (0.036, 0.000),  # shoe molding base
+        (0.036, 0.000),
         (0.036, 0.012),
-        (0.026, 0.024),  # quarter-round shoe curve
-        (0.024, 0.115),  # tall vertical plinth
-        (0.029, 0.125),  # lower bead
-        (0.022, 0.136),  # recessed cove
-        (0.026, 0.148),  # ogee crest
-        (0.012, 0.160),  # top bevel
+        (0.026, 0.024),
+        (0.024, 0.115),
+        (0.029, 0.125),
+        (0.022, 0.136),
+        (0.026, 0.148),
+        (0.012, 0.160),
         (0.000, 0.165),
     ]
-    static_arch.append(make_profile_molding("BaseboardWin", (-W_HALF, Y_WIN - 0.020), (W_HALF, Y_WIN - 0.020), baseboard_prof, (0, -1), mat_trim_white))
-    static_arch.append(make_profile_molding("BaseboardLeft", (-W_HALF + 0.020, Y_BACK), (-W_HALF + 0.020, Y_WIN), baseboard_prof, (1, 0), mat_trim_white))
-    static_arch.append(make_profile_molding("BaseboardRight", (W_HALF - 0.020, Y_WIN), (W_HALF - 0.020, Y_BACK), baseboard_prof, (-1, 0), mat_trim_white))
+    static_arch.append(make_profile_molding("BaseboardWin", (-W_HALF + 0.022, Y_WIN - 0.022), (W_HALF - 0.022, Y_WIN - 0.022), baseboard_prof, (0, -1), mat_trim_white))
+    static_arch.append(make_profile_molding("BaseboardLeft", (-W_HALF + 0.022, Y_BACK), (-W_HALF + 0.022, Y_WIN - 0.022), baseboard_prof, (1, 0), mat_trim_white))
+    static_arch.append(make_profile_molding("BaseboardRight", (W_HALF - 0.022, Y_WIN - 0.022), (W_HALF - 0.022, Y_BACK), baseboard_prof, (-1, 0), mat_trim_white))
 
-    # B. Sculpted 9-Point Classical Chair Rail (cove + projecting bullnose + ogee lip!)
+    # B. Sculpted 9-Point Classical Chair Rail — split cleanly at window sill ends so ZERO z-fighting under window!
     def chair_rail_prof(z_base):
         return [
             (0.000, z_base + 0.000),
             (0.018, z_base + 0.004),
-            (0.026, z_base + 0.012),  # lower bead
-            (0.020, z_base + 0.020),  # cove shadow line
-            (0.038, z_base + 0.030),  # bold projecting bullnose!
+            (0.026, z_base + 0.012),
+            (0.020, z_base + 0.020),
+            (0.038, z_base + 0.030),
             (0.040, z_base + 0.042),
-            (0.032, z_base + 0.052),  # ogee step
+            (0.032, z_base + 0.052),
             (0.022, z_base + 0.060),
             (0.010, z_base + 0.068),
             (0.000, z_base + 0.072),
         ]
 
-    static_arch.append(make_profile_molding("ChairRailWin", (-W_HALF, Y_WIN - 0.020), (W_HALF, Y_WIN - 0.020), chair_rail_prof(0.815), (0, -1), mat_trim_white))
-    static_arch.append(make_profile_molding("ChairRailLeft", (-W_HALF + 0.020, Y_BACK), (-W_HALF + 0.020, Y_WIN), chair_rail_prof(0.86), (1, 0), mat_trim_white))
-    static_arch.append(make_profile_molding("ChairRailRight", (W_HALF - 0.020, Y_WIN), (W_HALF - 0.020, Y_BACK), chair_rail_prof(0.86), (-1, 0), mat_trim_white))
+    # Stop window-wall chair rail cleanly at X = +/-1.045 (outside window sill at +/-1.035!)
+    static_arch.append(make_profile_molding("ChairRailWinL", (-W_HALF + 0.022, Y_WIN - 0.022), (-wx - 0.095, Y_WIN - 0.022), chair_rail_prof(0.795), (0, -1), mat_trim_white))
+    static_arch.append(make_profile_molding("ChairRailWinR", (wx + 0.095, Y_WIN - 0.022), (W_HALF - 0.022, Y_WIN - 0.022), chair_rail_prof(0.795), (0, -1), mat_trim_white))
+    static_arch.append(make_profile_molding("ChairRailLeft", (-W_HALF + 0.022, Y_BACK), (-W_HALF + 0.022, Y_WIN - 0.022), chair_rail_prof(0.86), (1, 0), mat_trim_white))
+    static_arch.append(make_profile_molding("ChairRailRight", (W_HALF - 0.022, Y_WIN - 0.022), (W_HALF - 0.022, Y_BACK), chair_rail_prof(0.86), (-1, 0), mat_trim_white))
 
     # C. Ornate Classical Crown Molding (Cyma Recta + Cove + Fillet) + Carved 3D Dentil Blocks!
     crown_prof = [
@@ -729,56 +790,71 @@ def build_room():
         static_arch.append(make_bolection_panel_frame(f"UpperWallFrame_{tag}", (sgn_w * 1.94, Y_WIN - 0.002, 1.56), 0.82, 1.12, 'Y', -1.0, mat_trim_white))
 
     # 5. FLUTED CLASSICAL WINDOW TRIM, ROSETTE CORNER BLOCKS, PEDIMENT HEADER & PROFILED SILL
-    # Profiled bullnose & cove windowsill ledge (cleanly clear of curtains!)
+    # Every trim element is deliberately offset by 2-6 mm from walls/jambs/muntins — ZERO coplanar z-fighting!
+    y_trim = Y_WIN - 0.003  # 3 mm proud of WinWall front face (Y_WIN = 2.200)
+
+    # Profiled bullnose & cove windowsill ledge (cleanly clear of curtains & chair rail!)
     sill_prof = [
-        (-0.22, wz0 - 0.052),
-        (-0.22, wz0 - 0.002),
-        (0.055, wz0 - 0.002),  # flat sill top
-        (0.068, wz0 - 0.008),  # rounded bullnose edge!
+        (-0.205, wz0 - 0.046),
+        (-0.205, wz0 - 0.002),
+        (0.055, wz0 - 0.002),
+        (0.068, wz0 - 0.008),
         (0.068, wz0 - 0.024),
-        (0.054, wz0 - 0.032),  # underside drip cove
-        (0.036, wz0 - 0.038),  # apron molding step!
+        (0.054, wz0 - 0.032),
+        (0.036, wz0 - 0.038),
         (0.036, wz0 - 0.064),
-        (0.022, wz0 - 0.074),  # lower apron ogee
+        (0.022, wz0 - 0.074),
         (0.000, wz0 - 0.080),
     ]
-    static_arch.append(make_profile_molding("WindowSillProfiled", (-wx - 0.08, Y_WIN), (wx + 0.08, Y_WIN), sill_prof, (0, -1), mat_trim_white))
+    static_arch.append(make_profile_molding("WindowSillProfiled", (-wx - 0.082, y_trim), (wx + 0.082, y_trim), sill_prof, (0, -1), mat_trim_white))
 
-    # Decorative carved sill corbel brackets tucked beneath left & right sill ends
+    # Decorative carved sill corbel brackets tucked cleanly below the sill apron (zero overlap!)
     for sx in (-wx - 0.02, wx + 0.02):
-        static_arch.append(make_box(f"SillCorbel_{sx:.2f}", sx, Y_WIN - 0.028, wz0 - 0.092, 0.048, 0.044, 0.055, mat_trim_white, bevel=0.008))
+        static_arch.append(make_box(f"SillCorbel_{sx:.2f}", sx, y_trim - 0.024, wz0 - 0.104, 0.046, 0.042, 0.048, mat_trim_white, bevel=0.007))
 
-    # Fluted Classical Vertical Window Casings (3 deep vertical flutes!) resting on plinth blocks
-    casing_w = 0.105
-    casing_d = 0.042
-    static_arch.append(make_fluted_casing("WinCasingFluted_L", -wx - casing_w * 0.5 + 0.006, Y_WIN, wz0 + 0.002, wz1 - 0.002, casing_w, casing_d, mat_trim_white))
-    static_arch.append(make_fluted_casing("WinCasingFluted_R", wx + casing_w * 0.5 - 0.006, Y_WIN, wz0 + 0.002, wz1 - 0.002, casing_w, casing_d, mat_trim_white))
+    # Fluted Classical Vertical Window Casings (cleanly outside X = +/-0.953, proud of wall at y_trim!)
+    casing_w = 0.102
+    casing_d = 0.040
+    static_arch.append(make_fluted_casing("WinCasingFluted_L", -wx - casing_w * 0.5 - 0.003, y_trim, wz0 + 0.001, wz1 - 0.002, casing_w, casing_d, mat_trim_white))
+    static_arch.append(make_fluted_casing("WinCasingFluted_R", wx + casing_w * 0.5 + 0.003, y_trim, wz0 + 0.001, wz1 - 0.002, casing_w, casing_d, mat_trim_white))
 
-    # Sculpted Classical Corner Rosette Blocks at upper-left & upper-right of the window!
-    static_arch.append(make_rosette_corner_block("WinRosette_L", -wx - casing_w * 0.5 + 0.006, Y_WIN, wz1 + 0.056, 0.118, 0.048, mat_trim_white))
-    static_arch.append(make_rosette_corner_block("WinRosette_R", wx + casing_w * 0.5 - 0.006, Y_WIN, wz1 + 0.056, 0.118, 0.048, mat_trim_white))
+    # Sculpted Classical Corner Rosette Blocks at upper-left & upper-right (slightly proud of pediment header!)
+    static_arch.append(make_rosette_corner_block("WinRosette_L", -wx - casing_w * 0.5 - 0.003, y_trim - 0.003, wz1 + 0.058, 0.114, 0.046, mat_trim_white))
+    static_arch.append(make_rosette_corner_block("WinRosette_R", wx + casing_w * 0.5 + 0.003, y_trim - 0.003, wz1 + 0.058, 0.114, 0.046, mat_trim_white))
 
-    # Stepped Classical Architrave & Crown Pediment Header above the window!
+    # Stepped Classical Architrave & Crown Pediment Header running cleanly BETWEEN the two corner rosettes!
     header_prof = [
-        (0.000, wz1 + 0.002),
-        (0.042, wz1 + 0.002),
-        (0.044, wz1 + 0.026),  # lower architrave step
-        (0.036, wz1 + 0.042),  # recessed frieze band
-        (0.036, wz1 + 0.088),
-        (0.052, wz1 + 0.102),  # stepped cornice fillet
-        (0.072, wz1 + 0.122),  # projecting classical pediment cap!
-        (0.078, wz1 + 0.136),
+        (0.000, wz1 + 0.003),
+        (0.040, wz1 + 0.003),
+        (0.042, wz1 + 0.026),
+        (0.034, wz1 + 0.042),
+        (0.034, wz1 + 0.088),
+        (0.050, wz1 + 0.102),
+        (0.070, wz1 + 0.122),
+        (0.076, wz1 + 0.136),
         (0.000, wz1 + 0.136),
     ]
-    static_arch.append(make_profile_molding("WinPedimentHeader", (-wx - 0.135, Y_WIN), (wx + 0.135, Y_WIN), header_prof, (0, -1), mat_trim_white))
+    static_arch.append(make_profile_molding("WinPedimentHeader", (-wx + 0.002, y_trim), (wx - 0.002, y_trim), header_prof, (0, -1), mat_trim_white))
+    # Continuous projecting top crown cap spanning across both rosettes cleanly above them!
+    top_cap_prof = [
+        (0.000, wz1 + 0.116),
+        (0.056, wz1 + 0.116),
+        (0.076, wz1 + 0.132),
+        (0.082, wz1 + 0.146),
+        (0.000, wz1 + 0.146),
+    ]
+    static_arch.append(make_profile_molding("WinPedimentCap", (-wx - 0.138, y_trim), (wx + 0.138, y_trim), top_cap_prof, (0, -1), mat_trim_white))
 
-    # Inner sash jambs & stepped classical muntins
-    static_arch.append(make_box("WinJambL", -wx + 0.022, Y_WIN + 0.11, (wz0 + wz1) * 0.5, 0.044, 0.20, wz1 - wz0, mat_trim_white))
-    static_arch.append(make_box("WinJambR", wx - 0.022, Y_WIN + 0.11, (wz0 + wz1) * 0.5, 0.044, 0.20, wz1 - wz0, mat_trim_white))
-    static_arch.append(make_box("WinJambTop", 0.0, Y_WIN + 0.11, wz1 - 0.022, wx * 2, 0.20, 0.044, mat_trim_white))
+    # Inner sash jambs — cleanly inset inside the opening (ZERO coplanar overlap with WinWall or each other!)
+    jamb_t = 0.040
+    static_arch.append(make_box("WinJambL", -wx + jamb_t * 0.5 + 0.002, Y_WIN + 0.100, (wz0 + wz1) * 0.5, jamb_t, 0.192, wz1 - wz0 - 0.006, mat_trim_white))
+    static_arch.append(make_box("WinJambR", wx - jamb_t * 0.5 - 0.002, Y_WIN + 0.100, (wz0 + wz1) * 0.5, jamb_t, 0.192, wz1 - wz0 - 0.006, mat_trim_white))
+    static_arch.append(make_box("WinJambTop", 0.0, Y_WIN + 0.100, wz1 - jamb_t * 0.5 - 0.002, (wx - jamb_t - 0.004) * 2.0, 0.192, jamb_t, mat_trim_white))
+
+    # Muntins with DELIBERATE 4 mm depth offset between vertical & horizontal bars (eliminates crossing z-fighting 100%!)
     for mx in (-0.34, 0.34):
-        static_arch.append(make_box(f"MuntinV_{mx:.2f}", mx, Y_WIN + 0.14, (wz0 + wz1) * 0.5, 0.028, 0.038, wz1 - wz0, mat_trim_white, bevel=0.005))
-    static_arch.append(make_box("MuntinH_Mid", 0.0, Y_WIN + 0.14, 1.72, wx * 2, 0.038, 0.032, mat_trim_white, bevel=0.005))
+        static_arch.append(make_box(f"MuntinV_{mx:.2f}", mx, Y_WIN + 0.128, (wz0 + wz1) * 0.5, 0.026, 0.032, wz1 - wz0 - jamb_t - 0.008, mat_trim_white, bevel=0.004))
+    static_arch.append(make_box("MuntinH_Mid", 0.0, Y_WIN + 0.128, 1.72, (wx - jamb_t - 0.004) * 2.0, 0.024, 0.028, mat_trim_white, bevel=0.004))
 
     # 6. Warm Walnut Sideboard along Right Wall
     sb_x, sb_y = 2.50, 0.42
@@ -800,8 +876,8 @@ def build_room():
         samples=36,
         lights=[
             ("BakeRoomWarm", 'POINT', (0.0, 0.35, 1.55), 115.0, (1.0, 0.78, 0.52), 0.55),
-            ("BakeSconceL", 'POINT', (-1.58, 2.02, 1.72), 45.0, (1.0, 0.74, 0.42), 0.18),
-            ("BakeSconceR", 'POINT', (1.58, 2.02, 1.72), 45.0, (1.0, 0.74, 0.42), 0.18),
+            ("BakeSconceL", 'POINT', (-1.71, 2.02, 1.96), 48.0, (1.0, 0.74, 0.42), 0.18),
+            ("BakeSconceR", 'POINT', (1.71, 2.02, 1.96), 48.0, (1.0, 0.74, 0.42), 0.18),
             ("BakeSideboard", 'POINT', (2.42, 0.82, 1.15), 40.0, (1.0, 0.76, 0.44), 0.22),
             ("BakeMoon", 'AREA', (0.0, 2.85, 1.75), 75.0, (0.45, 0.64, 1.0), 1.6),
         ],
@@ -819,15 +895,16 @@ def build_room():
     bm_rg.to_mesh(rug.data)
     bm_rg.free()
 
-    # 8. Draped Royal-Blue Velvet Curtains + Brushed Silver Curtain Rod & Finials (positioned cleanly outside fluted window casings & rosettes!)
-    build_curtain_panel("Curtain_Left", -1.32, Y_WIN - 0.16, 0.03, 2.62, 0.56, mat_curtain, tie_side=-1.0)
-    build_curtain_panel("Curtain_Right", 1.32, Y_WIN - 0.16, 0.03, 2.62, 0.56, mat_curtain, tie_side=1.0)
+    # 8. Draped Woven Royal-Blue Textile Curtains + Rings + Tiebacks + Brushed Silver Rod
+    # Positioned cleanly at X = +/-1.26 (outer edge ~1.49 m) so there is >13 cm open wall clearance to wall sconces!
+    build_curtain_panel("Curtain_Left", -1.26, Y_WIN - 0.145, 0.014, 2.61, 0.46, mat_curtain, tie_side=-1.0, mat_tie=mat_curtain_tie, mat_ring=mat_silver)
+    build_curtain_panel("Curtain_Right", 1.26, Y_WIN - 0.145, 0.014, 2.61, 0.46, mat_curtain, tie_side=1.0, mat_tie=mat_curtain_tie, mat_ring=mat_silver)
 
-    rod_pts = [Vector((-1.72, Y_WIN - 0.17, 2.62)), Vector((1.72, Y_WIN - 0.17, 2.62))]
-    create_tube_along_points("CurtainRod", rod_pts, radii=0.015, radial_segs=16, mat=mat_silver)
-    for sx in (-1.76, 1.76):
+    rod_pts = [Vector((-1.55, Y_WIN - 0.155, 2.62)), Vector((1.55, Y_WIN - 0.155, 2.62))]
+    create_tube_along_points("CurtainRod", rod_pts, radii=0.014, radial_segs=16, mat=mat_silver)
+    for sx in (-1.59, 1.59):
         bm_f = bmesh.new()
-        bmesh.ops.create_uvsphere(bm_f, u_segments=16, v_segments=12, radius=0.034, matrix=Matrix.Translation((sx, Y_WIN - 0.17, 2.62)))
+        bmesh.ops.create_uvsphere(bm_f, u_segments=16, v_segments=12, radius=0.032, matrix=Matrix.Translation((sx, Y_WIN - 0.155, 2.62)))
         mf = bpy.data.meshes.new(f"RodFinial_{sx:.1f}")
         bm_f.to_mesh(mf)
         bm_f.free()
@@ -836,16 +913,16 @@ def build_room():
         set_smooth(fo, 60.0)
         fo.data.materials.append(mat_silver)
 
-    # 9. Twin Warm Brushed-Silver Wall Sconces flanking the window (X = +/-1.62, Y = 2.15, Z = 1.72)
+    # 9. Twin Warm Brushed-Silver Wall Sconces cleanly OUTSIDE the curtains (X = +/-1.71, Z = 1.84..2.03 — ZERO intersection with curtain!)
     sconce_parts = []
-    for sx in (-1.62, 1.62):
-        plate = create_lathe_mesh(f"SconcePlate_{sx:.1f}", [(0.055, 0.0), (0.052, 0.012), (0.018, 0.016)], 28, mat=mat_silver)
+    for sx in (-1.71, 1.71):
+        plate = create_lathe_mesh(f"SconcePlate_{sx:.1f}", [(0.052, 0.0), (0.049, 0.012), (0.018, 0.016)], 28, mat=mat_silver)
         plate.rotation_euler = (math.pi / 2.0, 0.0, 0.0)
-        plate.location = (sx, Y_WIN - 0.015, 1.66)
+        plate.location = (sx, Y_WIN - 0.015, 1.82)
         sconce_parts.append(plate)
         arm = create_tube_along_points(
             f"SconceArm_{sx:.1f}",
-            [(sx, Y_WIN - 0.02, 1.66), (sx, Y_WIN - 0.12, 1.63), (sx, Y_WIN - 0.15, 1.70)],
+            [(sx, Y_WIN - 0.02, 1.82), (sx, Y_WIN - 0.11, 1.79), (sx, Y_WIN - 0.14, 1.86)],
             radii=0.007,
             radial_segs=10,
             mat=mat_silver,
@@ -853,13 +930,13 @@ def build_room():
         sconce_parts.append(arm)
         shade = create_lathe_mesh(
             f"SconceShade_{sx:.1f}",
-            [(0.068, 1.70), (0.048, 1.85), (0.045, 1.85), (0.065, 1.70)],
+            [(0.065, 1.86), (0.046, 2.01), (0.043, 2.01), (0.062, 1.86)],
             32,
             cap_bottom=False,
             cap_top=False,
             mat=mat_sconce_shade,
         )
-        shade.location = (sx, Y_WIN - 0.15, 0.0)
+        shade.location = (sx, Y_WIN - 0.14, 0.0)
         sconce_parts.append(shade)
 
     # 10. Cozy Silver Table Lamp on the Sideboard (X = 2.48, Y = 0.85, Z = 0.822)
@@ -883,8 +960,8 @@ def build_room():
     sconce_parts.append(lamp_shade)
     join_objects(sconce_parts, "Room_LightingFixtures")
 
-    # 11. Subtle Window Glass Pane (separate mesh so Three.js can tune reflections cleanly)
-    glass = make_box("Window_Glass", 0.0, Y_WIN + 0.15, (wz0 + wz1) * 0.5, wx * 2 - 0.04, 0.008, wz1 - wz0 - 0.04, mat_window_glass)
+    # 11. Subtle Window Glass Pane cleanly BEHIND muntins (Y = Y_WIN + 0.168, 4 mm thin — ZERO overlap with muntins!)
+    glass = make_box("Window_Glass", 0.0, Y_WIN + 0.168, (wz0 + wz1) * 0.5, wx * 2 - 0.092, 0.004, wz1 - wz0 - 0.052, mat_window_glass)
 
     export_glb(os.path.join(MODELS_DIR, "room.glb"))
 

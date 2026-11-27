@@ -148,29 +148,31 @@ export function createWinterNightExterior(scene, backdropTexture) {
   backdrop.position.set(-0.08, 1.60, -4.55);
   group.add(backdrop);
 
-  // 2. Delicate cold frost/condensation layer inside outer window glass corners (Z = -2.33)
-  const frostGeo = new THREE.PlaneGeometry(1.88, 1.56);
+  // 2. Delicate cold frost/condensation layer cleanly offset 10 mm in front of Window_Glass (Z = -2.368) -> ZERO z-fighting!
+  const frostGeo = new THREE.PlaneGeometry(1.80, 1.52);
   const frostMat = new THREE.MeshBasicMaterial({
     map: createWindowFrostTexture(),
     transparent: true,
-    opacity: 0.9,
+    opacity: 0.85,
     depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
     blending: THREE.NormalBlending,
   });
   const frostPane = new THREE.Mesh(frostGeo, frostMat);
-  frostPane.position.set(0, 1.65, -2.33);
+  frostPane.position.set(0, 1.65, -2.356);
   group.add(frostPane);
 
-  // 3. Natural organic wind-drifted snow bank accumulated on the exterior window sill (Z = -2.41)
-  const snowSillGeo = new THREE.BoxGeometry(1.94, 0.048, 0.16, 24, 3, 6);
+  // 3. Natural organic wind-drifted snow bank accumulated cleanly outside the window glass (Z = -2.445)
+  const snowSillGeo = new THREE.BoxGeometry(1.84, 0.044, 0.12, 24, 3, 6);
   const sp = snowSillGeo.attributes.position;
   for (let i = 0; i < sp.count; i++) {
     if (sp.getY(i) > 0) {
       const x = sp.getX(i);
       const z = sp.getZ(i);
-      // Higher soft drift toward left/right jamb corners, wind-sculpted ripples across center
-      const cornerDrift = 0.018 * Math.pow(Math.abs(x) / 0.97, 2.2);
-      const ripple = 0.009 * Math.sin(x * 4.8 + 0.5) + 0.006 * Math.cos(x * 10.4) + 0.005 * Math.sin(z * 18.0);
+      const cornerDrift = 0.016 * Math.pow(Math.abs(x) / 0.92, 2.2);
+      const ripple = 0.008 * Math.sin(x * 4.8 + 0.5) + 0.005 * Math.cos(x * 10.4) + 0.004 * Math.sin(z * 18.0);
       sp.setY(i, sp.getY(i) + cornerDrift + ripple);
     }
   }
@@ -183,7 +185,7 @@ export function createWinterNightExterior(scene, backdropTexture) {
     emissiveIntensity: 0.42,
   });
   const snowSill = new THREE.Mesh(snowSillGeo, snowMat);
-  snowSill.position.set(0, 0.878, -2.41);
+  snowSill.position.set(0, 0.878, -2.445);
   group.add(snowSill);
 
   // 4. Two-depth live 3D falling snow outside the window for genuine photographic parallax
@@ -222,11 +224,18 @@ export function createWinterNightExterior(scene, backdropTexture) {
   group.add(farSnow.points);
   scene.add(group);
 
+  let gustTimer = 0.0;
+
   return {
     group,
+    triggerSnowGust() {
+      gustTimer = 3.2;
+    },
     update(elapsed, dt) {
-      nearSnow.update(elapsed, dt);
-      farSnow.update(elapsed, dt);
+      if (gustTimer > 0) gustTimer = Math.max(0, gustTimer - dt);
+      const boost = 1.0 + 2.4 * Math.sin((gustTimer / 3.2) * Math.PI);
+      nearSnow.update(elapsed, dt * boost);
+      farSnow.update(elapsed, dt * boost);
     },
   };
 }

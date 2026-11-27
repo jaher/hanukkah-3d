@@ -16,6 +16,7 @@ import { computeHanukkahNight, HANUKKAH_2026_NIGHT_DATES } from './hanukkah-cale
 import { CandleFlameRig } from './flames.js';
 import { createWinterNightExterior } from './winter-window.js';
 import { HanukkahMusicPlayer } from './hanukkah-music.js';
+import { RoomSoundEffects } from './sfx.js';
 
 // Exact world heights matching Blender exports (1 unit = 1 meter)
 const TABLE_Z = -0.35;
@@ -69,6 +70,12 @@ const CAMERA_PRESETS = {
 
 // Axial spin angle (radians) that puts each Hebrew letter facing straight UP
 // when the dreidel topples sideways (+X tilt ~ 82.5 deg) onto the table!
+const REBBE_QUOTES = [
+  ['🕯️', 'The Lubavitcher Rebbe', '"A little bit of light dispels a great deal of darkness."'],
+  ['✨', 'The Lubavitcher Rebbe', '"Every single candle we light adds warmth and goodness to the entire world."'],
+  ['✡', 'The Lubavitcher Rebbe', '"Each night of Hanukkah we increase in light—always growing from strength to strength."'],
+];
+
 const DREIDEL_OUTCOMES = [
   { letter: 'נ', name: 'Nun (נ)', meaning: 'Nes — Nothing happens · "A great miracle happened there"', spinAngle: Math.PI },
   { letter: 'ג', name: 'Gimel (ג)', meaning: 'Gadol — Take the whole pot of gelt!', spinAngle: Math.PI / 2 },
@@ -183,13 +190,38 @@ class HanukkahApp {
     };
     this.toastTimer = null;
 
-    // Interactive sufganiyot bite states & kiddush cup wine sip state
-    this.sufganiyotItems = []; // [{ id, states: [obj0..obj3], state: 0..4, popTimer: 0 }]
+    // Interactive sufganiyot bite states + oozing jam drips & kiddush cup wine sip state
+    this.sufganiyotItems = []; // [{ id, states: [obj0..obj3], state: 0..4, popTimer: 0, drips: [] }]
+    this.sufganiyotRoot = null;
     this.sufganiyotPlatter = null;
+    this.jamDrips = []; // active oozing strawberry jam tendrils
+    this.jamDripMat = null;
     this.kiddushRoot = null;
     this.wineLevels = {}; // { 1: mesh, 2: mesh, 3: mesh, 4: mesh }
     this.wineLevel = 4;   // 4 = full .. 0 = empty
     this.wineSipAnim = 0;
+
+    // All-room object interactivity states
+    this.sfx = new RoomSoundEffects();
+    this.geltCoins = []; // [{ mesh, basePos, baseRot, spinTimer, spinDur, spinAxis, flipDir }]
+    this.geltPouch = null;
+    this.geltPouchJiggle = 0;
+    this.dreidelLarge = null;
+    this.dreidelLargeSpin = 0;
+    this.challahCover = null;
+    this.challahUncovered = false;
+    this.challahCoverLerp = 0; // 0 = draped, 1 = lifted/uncovered
+    this.challahCoverBasePos = null;
+    this.starWallR = null;
+    this.starWallSpin = 0;
+    this.windowStarSpinVel = 0;
+    this.curtains = [];
+    this.curtainSwayTimer = 0;
+    this.lampsDimmed = false;
+    this.rebbeQuoteIdx = 0;
+    this.candleBoxAnim = 0;
+    this.candleBoxRoot = null;
+    this.interactiveRegistry = []; // [{ root, type, data }]
 
     // Subtle traditional Hanukkah music player (starts on first click/tap anywhere, toggleable on/off)
     this.musicPlayer = new HanukkahMusicPlayer((state) => this.updateMusicHUD(state));
@@ -210,6 +242,8 @@ class HanukkahApp {
       spinDreidel: () => this.triggerDreidelSpin(),
       biteSufganiyah: (idx = 4) => this.biteSufganiyah(idx),
       sipWine: () => this.sipKiddushWine(),
+      spinCoin: (idx = 0) => this.spinGeltCoin(idx),
+      toggleChallahCover: () => this.toggleChallahCover(),
       toggleMusic: () => this.musicPlayer.toggle(),
       nextTrack: () => this.musicPlayer.nextTrack(),
       getState: () => ({
@@ -221,6 +255,9 @@ class HanukkahApp {
         musicTrack: this.musicPlayer.currentTrack.title,
         wineLevel: this.wineLevel,
         sufganiyotStates: this.sufganiyotItems.map((s) => s.state),
+        challahUncovered: this.challahUncovered,
+        geltCoinCount: this.geltCoins.length,
+        interactiveObjectCount: this.interactiveRegistry.length,
       }),
     };
   }
@@ -323,8 +360,8 @@ class HanukkahApp {
     this.scene.environment = buildHanukkahEnvironment(this.renderer);
     this.scene.environmentIntensity = 1.05;
 
-    // 3. Camera & Damped OrbitControls
-    this.camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.05, 30);
+    // 3. Camera & Damped OrbitControls (near = 0.08 for crisp depth precision & zero window z-fighting!)
+    this.camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.08, 30);
     this.camera.position.copy(CAMERA_PRESETS.overview.pos);
 
     this.controls = new OrbitControls(this.camera, this.canvas);
@@ -350,12 +387,16 @@ class HanukkahApp {
       obj.receiveShadow = true;
       if (obj.name.includes('Window_Glass')) {
         obj.material.transparent = true;
-        obj.material.opacity = 0.14;
+        obj.material.opacity = 0.12;
         obj.material.roughness = 0.06;
         obj.material.metalness = 0.1;
         obj.material.depthWrite = false;
+        obj.material.polygonOffset = true;
+        obj.material.polygonOffsetFactor = 1;
+        obj.material.polygonOffsetUnits = 1;
         obj.castShadow = false;
         obj.receiveShadow = false;
+        this.registerInteractive(obj, 'window_glass');
       } else if (obj.name.includes('Room_Architecture')) {
         const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
         for (const m of mats) {
@@ -363,8 +404,35 @@ class HanukkahApp {
           m.lightMapIntensity = 0.45;
           m.needsUpdate = true;
         }
-      } else if (obj.name.includes('Curtain') || obj.name.includes('LightingFixtures')) {
+      } else if (obj.name.includes('Curtain')) {
         obj.castShadow = true;
+        // Upgrade curtain textile mesh to physically-based velvet/woven-cloth sheen material!
+        const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+        const upgraded = mats.map((m) => {
+          if (m && m.name && m.name.includes('RoyalVelvetCurtain')) {
+            return new THREE.MeshPhysicalMaterial({
+              name: m.name,
+              color: m.color ? m.color.clone() : new THREE.Color(0xffffff),
+              map: m.map || null,
+              normalMap: m.normalMap || null,
+              normalScale: new THREE.Vector2(1.35, 1.35),
+              roughnessMap: m.roughnessMap || null,
+              roughness: 0.86,
+              metalness: 0.0,
+              sheen: 0.92,
+              sheenRoughness: 0.56,
+              sheenColor: new THREE.Color(0x6e90d4),
+              side: THREE.DoubleSide,
+            });
+          }
+          return m;
+        });
+        obj.material = Array.isArray(obj.material) ? upgraded : upgraded[0];
+        this.curtains.push({ mesh: obj, basePos: obj.position.clone() });
+        this.registerInteractive(obj, 'curtain');
+      } else if (obj.name.includes('LightingFixtures')) {
+        obj.castShadow = true;
+        this.registerInteractive(obj, 'lamps');
       }
     });
     this.scene.add(roomRoot);
@@ -426,6 +494,11 @@ class HanukkahApp {
       shCandleObj.material = shCandleObj.material.clone();
       shCandleObj.material.emissive = new THREE.Color(0xff9b32);
       shCandleObj.material.emissiveIntensity = 0.04;
+      this.registerInteractive(shCandleObj, 'candle', { flame: this.shamashFlame, label: 'Shamash (Helper Candle)' });
+    }
+    const hanBody = hanukkiahRoot.getObjectByName('Hanukkiah_Body');
+    if (hanBody) {
+      this.registerInteractive(hanBody, 'hanukkiah_body');
     }
 
     // 8 Night Candles (Night 1 = index 0 rightmost .. Night 8 = index 7 leftmost)
@@ -448,6 +521,9 @@ class HanukkahApp {
         isShamash: false,
       });
       this.candleFlames.push(flame);
+      if (cMesh) {
+        this.registerInteractive(cMesh, 'candle', { flame, label: `Hanukkah Candle #${i + 1}` });
+      }
     }
 
     // 8. Place All Traditional Judaica Props Flush on Table / Runner / Walls
@@ -466,16 +542,15 @@ class HanukkahApp {
       return root;
     };
 
-    // Large Decorative Heirloom Silver & Cobalt Dreidel on Stand (back-left on runner)
+    // Large Decorative Heirloom Silver & Cobalt Dreidel on Stand (back-left on runner — clickable display spin!)
     const dreidelLarge = enableShadows(assets.models.dreidel_large.scene, 1.45);
     dreidelLarge.position.set(-0.45, RUNNER_Y, -0.44);
     dreidelLarge.rotation.y = 0.42;
+    this.dreidelLarge = dreidelLarge;
+    this.registerInteractive(dreidelLarge, 'dreidel_large');
     this.scene.add(dreidelLarge);
 
     // Interactive playable dreidels scattered naturally across the table:
-    // Every dreidel rests naturally tilted/lying on its side by default (like a real dreidel at rest!).
-    // Clicking ANY playable dreidel (or pressing Space / "Spin Dreidel") lifts it upright onto its tip,
-    // spins it rapidly, wobbles as momentum fades, and topples it back down tilted with the rolled letter facing UP!
     const blueProto = assets.models.dreidel_blue.scene;
     const woodProto = assets.models.dreidel_wood.scene;
     const FLAT_TILT = Math.PI / 2 - 0.13;
@@ -484,7 +559,7 @@ class HanukkahApp {
       const pivot = new THREE.Group();
       pivot.position.set(x, surfaceY + 0.0155, z);
       pivot.rotation.order = 'YXZ';
-      pivot.rotation.set(FLAT_TILT, restYaw, 0); // tilted/resting naturally on its side by default!
+      pivot.rotation.set(FLAT_TILT, restYaw, 0);
 
       const spinNode = new THREE.Group();
       spinNode.rotation.y = restLetterSpin;
@@ -494,37 +569,70 @@ class HanukkahApp {
 
       const rig = { pivot, spinNode, baseX: x, baseY: surfaceY, baseZ: z, fallen: true };
       this.interactiveDreidels.push(rig);
+      this.registerInteractive(pivot, 'dreidel', { rig });
       return rig;
     };
 
     // 6 playable dreidels scattered naturally across the entire walnut table (all tilted at rest, all clickable to spin!)
-    this.primaryDreidel = createInteractiveDreidel(enableShadows(blueProto, 1.15), -0.17, TABLE_Y, -0.06, 0.35, Math.PI / 2); // Gimel up
-    createInteractiveDreidel(enableShadows(woodProto, 1.10), 0.13, TABLE_Y, -0.02, -0.82, Math.PI); // Nun up
-    createInteractiveDreidel(enableShadows(blueProto.clone(), 1.15), 0.61, TABLE_Y, 0.02, 1.28, -Math.PI / 2); // Shin up
-    createInteractiveDreidel(enableShadows(woodProto.clone(), 1.10), -0.51, TABLE_Y, 0.02, 0.72, 0); // Hey up
-    createInteractiveDreidel(enableShadows(woodProto.clone(), 1.10), -0.58, TABLE_Y, -0.62, 2.25, Math.PI / 2); // Gimel up
-    createInteractiveDreidel(enableShadows(blueProto.clone(), 1.15), 0.22, RUNNER_Y, -0.26, -0.48, Math.PI); // Nun up
+    this.primaryDreidel = createInteractiveDreidel(enableShadows(blueProto, 1.15), -0.17, TABLE_Y, -0.06, 0.35, Math.PI / 2);
+    createInteractiveDreidel(enableShadows(woodProto, 1.10), 0.13, TABLE_Y, -0.02, -0.82, Math.PI);
+    createInteractiveDreidel(enableShadows(blueProto.clone(), 1.15), 0.61, TABLE_Y, 0.02, 1.28, -Math.PI / 2);
+    createInteractiveDreidel(enableShadows(woodProto.clone(), 1.10), -0.51, TABLE_Y, 0.02, 0.72, 0);
+    createInteractiveDreidel(enableShadows(woodProto.clone(), 1.10), -0.58, TABLE_Y, -0.62, 2.25, Math.PI / 2);
+    createInteractiveDreidel(enableShadows(blueProto.clone(), 1.15), 0.22, RUNNER_Y, -0.26, -0.48, Math.PI);
 
-    // Embossed Gold & Silver Chocolate Gelt + Royal-Blue Drawstring Pouch (left foreground)
+    // Embossed Gold & Silver Chocolate Gelt (every single coin individually clickable to spin & clink!) + Velvet Pouch
     const gelt = enableShadows(assets.models.gelt.scene, 1.45);
     gelt.position.set(-0.37, TABLE_Y, -0.14);
     gelt.rotation.y = 0.24;
+    gelt.traverse((obj) => {
+      if (!obj.isMesh) return;
+      if (obj.name.startsWith('Coin')) {
+        const coinIdx = this.geltCoins.length;
+        this.geltCoins.push({
+          mesh: obj,
+          basePos: obj.position.clone(),
+          baseRot: obj.rotation.clone(),
+          spinTimer: 0,
+          spinDur: 0.78,
+          flipDir: 1,
+        });
+        this.registerInteractive(obj, 'coin', { coinIdx });
+      } else if (obj.name.includes('GeltPouch')) {
+        this.geltPouch = obj;
+        this.registerInteractive(obj, 'gelt_pouch');
+      }
+    });
     this.scene.add(gelt);
 
-    // Sufganiyot Jelly Doughnuts on Blue-and-White Porcelain Platter (right foreground)
-    // Each doughnut has 4 sculpted bite states (0=whole, 1=1 bite, 2=2 bites, 3=final morsel, 4=eaten)
+    // Sufganiyot Jelly Doughnuts on Blue-and-White Porcelain Platter (clickable to bite with oozing ruby jelly!)
     const sufganiyot = enableShadows(assets.models.sufganiyot.scene, 1.1);
     sufganiyot.position.set(0.39, TABLE_Y, -0.09);
     sufganiyot.rotation.y = -0.35;
+    this.sufganiyotRoot = sufganiyot;
+    this.jamDripMat = new THREE.MeshPhysicalMaterial({
+      color: new THREE.Color(0xb80820),
+      emissive: new THREE.Color(0x280208),
+      roughness: 0.05,
+      metalness: 0.0,
+      transmission: 0.18,
+      ior: 1.44,
+      thickness: 0.012,
+      attenuationColor: new THREE.Color(0xd60c28),
+      attenuationDistance: 0.018,
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.02,
+    });
     this.sufganiyotPlatter = sufganiyot.getObjectByName('PorcelainPlatter') || sufganiyot;
+    this.registerInteractive(this.sufganiyotPlatter, 'platter');
     for (let i = 1; i <= 5; i++) {
       const states = [0, 1, 2, 3].map((st) => sufganiyot.getObjectByName(`Suf_${i}_State${st}`)).filter(Boolean);
       states.forEach((obj, idx) => {
         obj.visible = idx === 0;
-        obj.userData.sufIndex = i - 1;
+        this.registerInteractive(obj, 'sufganiyah', { sufIndex: i - 1 });
       });
       if (states.length) {
-        this.sufganiyotItems.push({ id: i, states, state: 0, popTimer: 0 });
+        this.sufganiyotItems.push({ id: i, states, state: 0, popTimer: 0, drips: [] });
       }
     }
     this.scene.add(sufganiyot);
@@ -560,21 +668,29 @@ class HanukkahApp {
         this.wineLevels[lvl] = obj;
       }
     });
+    this.registerInteractive(kiddush, 'kiddush');
     this.scene.add(kiddush);
 
-    // Braided Challah on Carved Walnut Board with Draped Embroidered Challah Cover (back-right)
+    // Braided Challah on Carved Walnut Board with Interactive Liftable Embroidered Challah Cover!
     const challah = enableShadows(assets.models.challah.scene, 1.05);
     challah.position.set(0.60, TABLE_Y, -0.49);
     challah.rotation.y = -0.42;
+    this.challahCover = challah.getObjectByName('Challah_Cover_Group');
+    if (this.challahCover) {
+      this.challahCoverBasePos = this.challahCover.position.clone();
+    }
+    this.registerInteractive(challah, 'challah');
     this.scene.add(challah);
 
-    // Hanukkah Candle Box + Spare Twisted Candles + Wooden Matches (front-far-left)
+    // Hanukkah Candle Box + Spare Twisted Candles + Wooden Matches (clickable match strike!)
     const candleBox = enableShadows(assets.models.candle_box.scene, 1.05);
     candleBox.position.set(-0.67, TABLE_Y, -0.08);
     candleBox.rotation.y = 0.38;
+    this.candleBoxRoot = candleBox;
+    this.registerInteractive(candleBox, 'candle_box');
     this.scene.add(candleBox);
 
-    // Twin Frosted Cobalt & Silver Votive Candle Holders with Warm Lit Flames (flanking table ends!)
+    // Twin Frosted Cobalt & Silver Votive Candle Holders with Warm Lit Flames (clickable flame flare!)
     const votivePositions = [
       new THREE.Vector3(-0.69, RUNNER_Y, -0.48),
       new THREE.Vector3(0.71, TABLE_Y, -0.14),
@@ -582,7 +698,6 @@ class HanukkahApp {
     votivePositions.forEach((vPos, idx) => {
       const vObj = enableShadows(idx === 0 ? assets.models.votive.scene : assets.models.votive.scene.clone(), 1.25);
       vObj.position.copy(vPos);
-      // Make frosted cobalt glass translucent cleanly
       vObj.traverse((c) => {
         if (c.isMesh && c.material && c.material.name && c.material.name.includes('Glass')) {
           c.material.transparent = true;
@@ -593,19 +708,18 @@ class HanukkahApp {
       });
       this.scene.add(vObj);
 
-      // Lit votive flame inside each cobalt glass holder
       const vf = this.flameRig.createFlame(vObj, new THREE.Vector3(0.0, 0.058, 0.0), {
         scale: 0.82,
         seed: 55.0 + idx * 19.3,
         isShamash: true,
       });
       this.votiveFlames.push(vf);
+      this.registerInteractive(vObj, 'votive', { flame: vf });
     });
 
-    // Respectful Ornate Baroque Gilded Framed Portrait of the Lubavitcher Rebbe (Rabbi Menachem Mendel Schneerson)
-    // Mounted prominently on the left-back wall under the warm sconce light!
+    // Respectful Ornate Baroque Gilded Framed Portrait of the Lubavitcher Rebbe (clickable Hanukkah quote!)
     const rebbePortrait = enableShadows(assets.models.rebbe_portrait.scene, 1.35);
-    rebbePortrait.position.set(-1.92, 1.44, -2.18);
+    rebbePortrait.position.set(-2.06, 1.44, -2.18);
     rebbePortrait.traverse((obj) => {
       if (obj.isMesh && obj.name.includes('Portrait_Glass')) {
         obj.material.transparent = true;
@@ -616,16 +730,20 @@ class HanukkahApp {
         obj.receiveShadow = false;
       }
     });
+    this.registerInteractive(rebbePortrait, 'rebbe_portrait');
     this.scene.add(rebbePortrait);
 
-    // Ornate Brushed-Silver & Cobalt Star of David Wall Medallion symmetrically on right side of window
+    // Ornate Brushed-Silver & Cobalt Star of David Wall Medallion (clickable silver chime & gleam!)
     const starWallR = enableShadows(assets.models.star_wall.scene, 1.35);
-    starWallR.position.set(1.88, 1.40, -2.18);
+    starWallR.position.set(2.04, 1.40, -2.18);
+    this.starWallR = starWallR;
+    this.registerInteractive(starWallR, 'star_wall');
     this.scene.add(starWallR);
 
-    // Hanging Crystalline & Silver Star of David Ornament in the Winter Window
+    // Hanging Crystalline & Silver Star of David Ornament in the Winter Window (clickable crystal chime & spin!)
     const starWin = enableShadows(assets.models.star_window.scene, 1.45);
     starWin.position.set(0.0, 2.04, -2.06);
+    this.registerInteractive(starWin, 'star_window');
     this.scene.add(starWin);
     this.windowStar = starWin;
 
@@ -683,13 +801,13 @@ class HanukkahApp {
     votiveR.position.set(0.71, TABLE_Y + 0.12, -0.14);
     this.scene.add(votiveR);
 
-    // Warm wall sconce glow pools flanking window + sideboard lamp
+    // Warm wall sconce glow pools cleanly outside the curtains (X = +/-1.71, Y = 1.94, Z = -2.02 — zero curtain intersection!)
     const sconceL = new THREE.PointLight(0xffbe74, 0.72, 4.2, 1.8);
-    sconceL.position.set(-1.62, 1.78, -1.96);
+    sconceL.position.set(-1.71, 1.94, -2.02);
     this.scene.add(sconceL);
 
     const sconceR = new THREE.PointLight(0xffbe74, 0.72, 4.2, 1.8);
-    sconceR.position.set(1.62, 1.78, -1.96);
+    sconceR.position.set(1.71, 1.94, -2.02);
     this.scene.add(sconceR);
 
     const sideboardLamp = new THREE.PointLight(0xffb866, 0.65, 3.8, 1.8);
@@ -845,16 +963,23 @@ class HanukkahApp {
     };
   }
 
+  registerInteractive(rootObj, type, data = {}) {
+    if (!rootObj) return;
+    rootObj.userData.interactive = { type, ...data };
+    this.interactiveRegistry.push({ root: rootObj, type, data });
+  }
+
   triggerDreidelSpin(targetRig = null) {
     const rig = targetRig || this.primaryDreidel;
     if (!rig) return;
+    this.sfx.playWoodSpin();
     const outcome = DREIDEL_OUTCOMES[Math.floor(Math.random() * DREIDEL_OUTCOMES.length)];
     const fullSpins = 9 + Math.floor(Math.random() * 4);
     const currentSpin = rig.spinNode.rotation.y;
     const baseRev = Math.ceil(currentSpin / (Math.PI * 2)) * (Math.PI * 2);
     const targetSpin = baseRev + fullSpins * Math.PI * 2 + outcome.spinAngle;
 
-    const fallDir = (Math.random() * 1.4 - 0.7); // natural forward-facing fall angle so top letter is easy to read!
+    const fallDir = (Math.random() * 1.4 - 0.7);
     this.dreidelSpin = {
       active: true,
       rig,
@@ -871,6 +996,287 @@ class HanukkahApp {
 
     const toast = document.getElementById('dreidel-toast');
     toast.classList.add('hidden');
+  }
+
+  clearDripsForSuf(item) {
+    if (!item || !item.drips) return;
+    for (const d of item.drips) {
+      if (d.group.parent) d.group.parent.remove(d.group);
+    }
+    item.drips = [];
+  }
+
+  spawnOozingJamDrips(item, biteMesh) {
+    if (!this.sufganiyotRoot || !biteMesh || !this.jamDripMat) return;
+    // Clear previous state drips on this doughnut and spawn fresh viscous ruby strawberry jam tendrils oozing downward!
+    this.clearDripsForSuf(item);
+
+    // Exact bite-cavity jam pocket outer lip in doughnut local Three.js space (Blender (x,y,z) -> Three (x,z,-y))
+    // Transformed by biteMesh.quaternion so every rotated doughnut drips cleanly straight down the exposed bite face!
+    const localAnchor =
+      item.state === 1
+        ? new THREE.Vector3(0.004, 0.021, 0.0215)
+        : item.state === 2
+        ? new THREE.Vector3(0.001, 0.020, 0.0105)
+        : new THREE.Vector3(-0.008, 0.018, -0.0015);
+
+    const dripOffsets = [
+      { dx: -0.006, dy: 0.001, dz: 0.0015, maxDrop: 0.023, rad: 0.0040, speed: 0.92 },
+      { dx: 0.001, dy: 0.002, dz: 0.0030, maxDrop: 0.031, rad: 0.0048, speed: 0.72 },
+      { dx: 0.0075, dy: 0.000, dz: 0.0010, maxDrop: 0.018, rad: 0.0035, speed: 1.05 },
+    ];
+
+    dripOffsets.forEach((cfg) => {
+      const localPt = localAnchor.clone().add(new THREE.Vector3(cfg.dx, cfg.dy, cfg.dz));
+      localPt.applyQuaternion(biteMesh.quaternion).add(biteMesh.position);
+
+      const grp = new THREE.Group();
+      const startY = localPt.y;
+      grp.position.copy(localPt);
+
+      // Viscous stretched jelly tendril (grows straight downward under gravity from bite lip!)
+      const strandGeo = new THREE.CylinderGeometry(cfg.rad * 0.52, cfg.rad * 0.86, 1.0, 10);
+      strandGeo.translate(0, -0.5, 0); // anchor top at y = 0
+      const strand = new THREE.Mesh(strandGeo, this.jamDripMat);
+      strand.scale.set(1, 0.002, 1);
+      grp.add(strand);
+
+      // Glossy ruby teardrop bead at the leading tip of the flowing jelly!
+      const dropGeo = new THREE.SphereGeometry(cfg.rad * 1.18, 12, 10);
+      const drop = new THREE.Mesh(dropGeo, this.jamDripMat);
+      drop.scale.set(1.0, 1.28, 0.92);
+      grp.add(drop);
+
+      const maxDrop = Math.min(cfg.maxDrop, Math.max(0.012, startY - 0.010));
+      const reachesPlatter = startY - maxDrop <= 0.013;
+
+      // Tiny glossy jam puddle forming right on the porcelain platter when a lower-ring drip reaches it!
+      const puddleGeo = new THREE.CylinderGeometry(cfg.rad * 1.75, cfg.rad * 1.95, 0.0014, 14);
+      const puddle = new THREE.Mesh(puddleGeo, this.jamDripMat);
+      puddle.position.set(0, 0.0098 - startY, 0);
+      puddle.scale.set(0.01, 1, 0.01);
+      puddle.visible = false;
+      grp.add(puddle);
+
+      this.sufganiyotRoot.add(grp);
+      const dripRec = {
+        group: grp,
+        strand,
+        drop,
+        puddle,
+        reachesPlatter,
+        progress: 0,
+        maxDrop,
+        speed: cfg.speed,
+      };
+      item.drips.push(dripRec);
+      this.jamDrips.push(dripRec);
+    });
+  }
+
+  biteSufganiyah(index) {
+    const item = this.sufganiyotItems[index];
+    if (!item || item.state >= 4) return;
+
+    this.sfx.playBite();
+    item.state += 1;
+    item.popTimer = 0.24;
+    item.states.forEach((obj, idx) => {
+      obj.visible = idx === item.state;
+    });
+
+    if (item.state >= 1 && item.state <= 3 && item.states[item.state]) {
+      this.spawnOozingJamDrips(item, item.states[item.state]);
+    } else if (item.state >= 4) {
+      this.clearDripsForSuf(item);
+    }
+
+    const msgs = [
+      null,
+      ['🍩', 'First Bite!', 'Warm ruby strawberry jelly oozing from the bite — click again for another bite!'],
+      ['🍩', 'Second Bite!', 'Halfway through this fresh sufganiyah with oozing ruby jam'],
+      ['🍩', 'Almost Gone!', 'One last powdered-sugar morsel left'],
+      ['✨', 'Sufganiyah Finished!', 'Click another doughnut—or click the platter when empty to serve a fresh batch'],
+    ];
+    const [sym, title, desc] = msgs[item.state];
+    this.showActionToast(sym, title, desc);
+  }
+
+  refillSufganiyotIfEmpty() {
+    if (!this.sufganiyotItems.length) return;
+    const allEaten = this.sufganiyotItems.every((s) => s.state >= 4);
+    if (!allEaten) return;
+    this.sfx.playChime(987.7);
+    for (const item of this.sufganiyotItems) {
+      this.clearDripsForSuf(item);
+      item.state = 0;
+      item.popTimer = 0.28;
+      item.states.forEach((obj, idx) => {
+        obj.visible = idx === 0;
+      });
+    }
+    this.showActionToast('🍩', 'Fresh Sufganiyot Served!', 'Five warm powdered-sugar jelly doughnuts ready to enjoy');
+  }
+
+  sipKiddushWine() {
+    if (this.wineLevel > 0) {
+      this.sfx.playLchaimToast();
+      this.wineLevel -= 1;
+      this.wineSipAnim = 0.68;
+      for (const [lvlStr, mesh] of Object.entries(this.wineLevels)) {
+        mesh.visible = Number(lvlStr) === this.wineLevel;
+      }
+      const labels = {
+        3: ["🥂", "L'Chaim! (1st Sip)", 'Glasses clink! Kiddush cup is ¾ full — click again for another toast'],
+        2: ["🥂", "L'Chaim! (2nd Sip)", 'Half a cup of kosher red wine remaining'],
+        1: ["🥂", "L'Chaim! (3rd Sip)", 'One last sip left in the sterling silver goblet'],
+        0: ["✨", "L'Chaim! Cup Empty", 'Every drop enjoyed — click the Kiddush cup again to refill'],
+      };
+      const [sym, title, desc] = labels[this.wineLevel];
+      this.showActionToast(sym, title, desc);
+    } else {
+      this.sfx.playWineSip(true);
+      this.wineLevel = 4;
+      this.wineSipAnim = 0.42;
+      for (const [lvlStr, mesh] of Object.entries(this.wineLevels)) {
+        mesh.visible = Number(lvlStr) === 4;
+      }
+      this.showActionToast('🍷', 'Kiddush Cup Refilled', 'Brimming with deep ruby kosher red wine — ready for another L\'Chaim!');
+    }
+  }
+
+  spinGeltCoin(coinIdx, silent = false) {
+    const c = this.geltCoins[coinIdx];
+    if (!c) return;
+    c.spinTimer = c.spinDur;
+    c.flipDir = Math.random() > 0.5 ? 1 : -1;
+    if (!silent) {
+      this.sfx.playCoinClink(1.0);
+      this.showActionToast('🪙', 'Hanukkah Gelt!', 'Gold & silver chocolate coins spinning with a clink');
+    }
+  }
+
+  jingleGeltPouch() {
+    this.geltPouchJiggle = 0.65;
+    this.sfx.playCoinBagJingle();
+    // Pop and spin 3 nearby coins playfully!
+    const pick = [0, 6, 13, 15, 18].filter((i) => i < this.geltCoins.length).slice(0, 3);
+    pick.forEach((idx, k) => {
+      window.setTimeout(() => this.spinGeltCoin(idx, true), k * 70);
+    });
+    this.showActionToast('💰', 'Gelt Pouch!', 'Clinking chocolate coins ready for the dreidel pot');
+  }
+
+  toggleChallahCover() {
+    this.challahUncovered = !this.challahUncovered;
+    this.sfx.playClothRustle();
+    this.showActionToast(
+      '🍞',
+      this.challahUncovered ? 'Challah Uncovered' : 'Challah Covered',
+      this.challahUncovered
+        ? 'Hamotzi Lechem Min Ha\'aretz — braided golden challah revealed'
+        : 'Embroidered white & cobalt challah cover draped gracefully back'
+    );
+  }
+
+  toggleRoomLamps() {
+    this.lampsDimmed = !this.lampsDimmed;
+    this.sfx.playSwitchClick();
+    const mult = this.lampsDimmed ? 0.25 : 1.0;
+    if (this.lights.sconceL) this.lights.sconceL.intensity = 0.72 * mult;
+    if (this.lights.sconceR) this.lights.sconceR.intensity = 0.72 * mult;
+    if (this.lights.sideboardLamp) this.lights.sideboardLamp.intensity = 0.65 * mult;
+    this.showActionToast(
+      '🕯️',
+      this.lampsDimmed ? 'Intimate Candlelight Mood' : 'Warm Evening Sconces On',
+      this.lampsDimmed ? 'Room sconces dimmed to spotlight the glowing Hanukkiah' : 'Wall sconces and sideboard lamp illuminated'
+    );
+  }
+
+  handleInteractiveClick(info) {
+    switch (info.type) {
+      case 'dreidel':
+        this.triggerDreidelSpin(info.rig);
+        break;
+      case 'dreidel_large':
+        this.dreidelLargeSpin = 1.6;
+        this.sfx.playChime(1174.6);
+        this.showActionToast('✡', 'Heirloom Filigree Dreidel', 'נ ג ה ש — Nes Gadol Hayah Sham ("A great miracle happened there")');
+        break;
+      case 'coin':
+        this.spinGeltCoin(info.coinIdx);
+        break;
+      case 'gelt_pouch':
+        this.jingleGeltPouch();
+        break;
+      case 'sufganiyah':
+        this.biteSufganiyah(info.sufIndex);
+        break;
+      case 'platter':
+        this.refillSufganiyotIfEmpty();
+        break;
+      case 'kiddush':
+        this.sipKiddushWine();
+        break;
+      case 'challah':
+        this.toggleChallahCover();
+        break;
+      case 'candle':
+        this.sfx.playFlameWhoosh(false);
+        this.flameRig.flareFlame(info.flame);
+        this.showActionToast('🔥', info.label || 'Hanukkah Candle', 'Warm candlelight dances and flickers across the sterling silver');
+        break;
+      case 'hanukkiah_body': {
+        this.sfx.playFlameWhoosh(true);
+        const nextNight = this.activeNight >= 8 ? 1 : this.activeNight + 1;
+        this.selectNight(nextNight);
+        this.showActionToast('🕎', `Lighting Night ${nextNight}`, 'Candles placed right → left and lit left → right with the Shamash');
+        break;
+      }
+      case 'candle_box':
+        this.candleBoxAnim = 0.45;
+        this.sfx.playFlameWhoosh(true);
+        this.flameRig.flareFlame(null);
+        this.showActionToast('🔥', 'Hanukkah Candles & Matches', 'Fresh match struck — all flames flare brightly!');
+        break;
+      case 'votive':
+        this.sfx.playFlameWhoosh(false);
+        this.flameRig.flareFlame(info.flame);
+        this.showActionToast('🕯️', 'Cobalt Votive Candle', 'Warm amber flame shimmering through frosted cobalt glass');
+        break;
+      case 'rebbe_portrait': {
+        this.sfx.playChime(880);
+        const [sym, title, quote] = REBBE_QUOTES[this.rebbeQuoteIdx % REBBE_QUOTES.length];
+        this.rebbeQuoteIdx += 1;
+        this.showActionToast(sym, title, quote);
+        break;
+      }
+      case 'star_wall':
+        this.starWallSpin = 1.2;
+        this.sfx.playChime(1318.5);
+        this.showActionToast('✡', 'Magen David Medallion', 'Brushed sterling silver & cobalt enamel Star of David');
+        break;
+      case 'star_window':
+        this.windowStarSpinVel = 9.5;
+        this.sfx.playChime(1760.0);
+        this.showActionToast('❄️', 'Crystal Star Ornament', 'Sparkling in the winter candlelight above Jerusalem');
+        break;
+      case 'window_glass':
+        this.sfx.playFlameWhoosh(false);
+        if (this.winterExterior) this.winterExterior.triggerSnowGust();
+        this.showActionToast('❄️', 'Jerusalem — Winter Night', 'Gentle winter snow swirling over the Old City, Western Wall & Dome of the Rock');
+        break;
+      case 'lamps':
+        this.toggleRoomLamps();
+        break;
+      case 'curtain':
+        this.curtainSwayTimer = 1.4;
+        this.sfx.playClothRustle();
+        this.showActionToast('🪟', 'Velvet Drapes', 'A soft winter draft ripples the royal-blue velvet curtains');
+        break;
+      default:
+        break;
+    }
   }
 
   updateMusicHUD({ isPlaying, trackTitle }) {
@@ -894,73 +1300,11 @@ class HanukkahApp {
     document.getElementById('dreidel-meaning').textContent = detail;
     toast.classList.remove('hidden');
     if (this.toastTimer) clearTimeout(this.toastTimer);
-    this.toastTimer = setTimeout(() => toast.classList.add('hidden'), 4200);
+    this.toastTimer = setTimeout(() => toast.classList.add('hidden'), 4400);
   }
 
   showDreidelToast(outcome) {
     this.showActionToast(outcome.letter, outcome.name, outcome.meaning);
-  }
-
-  biteSufganiyah(index) {
-    const item = this.sufganiyotItems[index];
-    if (!item) return;
-    if (item.state >= 4) return;
-
-    item.state += 1;
-    item.popTimer = 0.24;
-    item.states.forEach((obj, idx) => {
-      obj.visible = idx === item.state;
-    });
-
-    const msgs = [
-      null,
-      ['🍩', 'First Bite!', 'Fluffy brioche & ruby strawberry jam inside — click again for another bite'],
-      ['🍩', 'Second Bite!', 'Halfway through this fresh sufganiyah'],
-      ['🍩', 'Almost Gone!', 'One last powdered-sugar morsel left'],
-      ['✨', 'Sufganiyah Finished!', 'Click another doughnut—or click the platter when empty to serve more'],
-    ];
-    const [sym, title, desc] = msgs[item.state];
-    this.showActionToast(sym, title, desc);
-  }
-
-  refillSufganiyotIfEmpty() {
-    if (!this.sufganiyotItems.length) return;
-    const allEaten = this.sufganiyotItems.every((s) => s.state >= 4);
-    if (!allEaten) return;
-    for (const item of this.sufganiyotItems) {
-      item.state = 0;
-      item.popTimer = 0.28;
-      item.states.forEach((obj, idx) => {
-        obj.visible = idx === 0;
-      });
-    }
-    this.showActionToast('🍩', 'Fresh Sufganiyot Served!', 'Five warm powdered-sugar jelly doughnuts ready to enjoy');
-  }
-
-  sipKiddushWine() {
-    if (this.wineLevel > 0) {
-      this.wineLevel -= 1;
-      this.wineSipAnim = 0.36;
-      for (const [lvlStr, mesh] of Object.entries(this.wineLevels)) {
-        mesh.visible = Number(lvlStr) === this.wineLevel;
-      }
-      const labels = {
-        3: ["🍷", "L'Chaim! (1st Sip)", 'Kiddush cup is ¾ full — click again for another sip'],
-        2: ["🍷", "L'Chaim! (2nd Sip)", 'Half a cup of kosher red wine remaining'],
-        1: ["🍷", "L'Chaim! (3rd Sip)", 'One last sip left in the silver goblet'],
-        0: ["✨", "L'Chaim! Cup Empty", 'Every drop enjoyed — click the Kiddush cup again to refill'],
-      };
-      const [sym, title, desc] = labels[this.wineLevel];
-      this.showActionToast(sym, title, desc);
-    } else {
-      // Refill cup smoothly when clicked while empty
-      this.wineLevel = 4;
-      this.wineSipAnim = 0.36;
-      for (const [lvlStr, mesh] of Object.entries(this.wineLevels)) {
-        mesh.visible = Number(lvlStr) === 4;
-      }
-      this.showActionToast('🍷', 'Kiddush Cup Refilled', 'Brimming with deep ruby kosher red wine');
-    }
   }
 
   bindHUD() {
@@ -1000,32 +1344,35 @@ class HanukkahApp {
     document.getElementById('btn-toggle-hud').addEventListener('click', toggleHud);
     document.getElementById('btn-show-hud').addEventListener('click', toggleHud);
 
-    // Click directly on any interactive object in the room:
-    // 1. Playable dreidel -> spin upright & topple sideways
-    // 2. Sufganiyah -> take progressive bites exposing crumb & ruby jam (or refill empty platter)
-    // 3. Kiddush cup / wine -> sip the red wine down level by level until empty (click again to refill)
+    // Unified raycaster for ALL interactive objects in the room!
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
     let pointerDownPos = null;
 
-    const getInteractiveTargets = () => {
-      const targets = [];
-      for (const rig of this.interactiveDreidels) targets.push(rig.pivot);
-      for (const item of this.sufganiyotItems) {
-        if (item.state < 4 && item.states[item.state]) targets.push(item.states[item.state]);
+    const findInteractiveInfo = (obj) => {
+      let cur = obj;
+      while (cur) {
+        if (cur.userData && cur.userData.interactive) {
+          return cur.userData.interactive;
+        }
+        cur = cur.parent;
       }
-      if (this.sufganiyotPlatter) targets.push(this.sufganiyotPlatter);
-      if (this.kiddushRoot) targets.push(this.kiddushRoot);
-      return targets;
+      return null;
     };
+
+    const getVisibleInteractiveRoots = () =>
+      this.interactiveRegistry
+        .map((e) => e.root)
+        .filter((r) => r && r.visible);
 
     this.canvas.addEventListener('pointermove', (e) => {
       if (!this.isLoaded) return;
       pointer.x = (e.clientX / window.innerWidth) * 2 - 1;
       pointer.y = -(e.clientY / window.innerHeight) * 2 + 1;
       raycaster.setFromCamera(pointer, this.camera);
-      const hits = raycaster.intersectObjects(getInteractiveTargets(), true);
-      this.canvas.style.cursor = hits.length > 0 ? 'pointer' : 'grab';
+      const hits = raycaster.intersectObjects(getVisibleInteractiveRoots(), true);
+      const visibleHit = hits.find((h) => h.object.visible && findInteractiveInfo(h.object));
+      this.canvas.style.cursor = visibleHit ? 'pointer' : 'grab';
     });
 
     this.canvas.addEventListener('pointerdown', (e) => {
@@ -1040,45 +1387,13 @@ class HanukkahApp {
       pointer.y = -(e.clientY / window.innerHeight) * 2 + 1;
       raycaster.setFromCamera(pointer, this.camera);
 
-      const hits = raycaster.intersectObjects(getInteractiveTargets(), true);
-      if (!hits.length) return;
-      const hitObj = hits[0].object;
-
-      // Check Kiddush cup / wine first if hit
-      if (this.kiddushRoot) {
-        let cur = hitObj;
-        while (cur) {
-          if (cur === this.kiddushRoot) {
-            this.sipKiddushWine();
-            return;
-          }
-          cur = cur.parent;
-        }
-      }
-
-      // Check individual sufganiyot (visible bite states)
-      let curSuf = hitObj;
-      while (curSuf) {
-        if (typeof curSuf.userData?.sufIndex === 'number') {
-          this.biteSufganiyah(curSuf.userData.sufIndex);
+      const hits = raycaster.intersectObjects(getVisibleInteractiveRoots(), true);
+      for (const h of hits) {
+        if (!h.object.visible) continue;
+        const info = findInteractiveInfo(h.object);
+        if (info) {
+          this.handleInteractiveClick(info);
           return;
-        }
-        if (curSuf === this.sufganiyotPlatter) {
-          this.refillSufganiyotIfEmpty();
-          return;
-        }
-        curSuf = curSuf.parent;
-      }
-
-      // Check interactive dreidels
-      for (const rig of this.interactiveDreidels) {
-        let cur = hitObj;
-        while (cur) {
-          if (cur === rig.pivot) {
-            this.triggerDreidelSpin(rig);
-            return;
-          }
-          cur = cur.parent;
         }
       }
     });
@@ -1159,12 +1474,17 @@ class HanukkahApp {
     this.lights.votiveL.intensity = 0.48 * (1.0 + 0.06 * Math.sin(elapsed * 6.4 + 1.2));
     this.lights.votiveR.intensity = 0.52 * (1.0 + 0.06 * Math.cos(elapsed * 5.9 + 2.7));
 
-    // 2. Update winter snowfall outside window + subtle swaying crystal window Star of David
+    // 2. Update winter snowfall outside window + subtle swaying/spinning crystal window Star of David
     if (this.winterExterior) {
       this.winterExterior.update(elapsed, dt);
     }
     if (this.windowStar) {
-      this.windowStar.rotation.y = 0.28 * Math.sin(elapsed * 0.55);
+      if (this.windowStarSpinVel > 0.05) {
+        this.windowStar.rotation.y += this.windowStarSpinVel * dt;
+        this.windowStarSpinVel *= Math.exp(-dt * 2.2);
+      } else {
+        this.windowStar.rotation.y = 0.28 * Math.sin(elapsed * 0.55);
+      }
     }
 
     // 3. Realistic Gyroscopic Dreidel Physics: Stand Upright -> Fast Spin -> Precession Wobble -> Sideways Topple!
@@ -1234,7 +1554,7 @@ class HanukkahApp {
       }
     }
 
-    // 3b. Subtle playful bounce feedback on bitten sufganiyot & gentle sip motion on Kiddush cup
+    // 3b. Oozing strawberry jam drips, spinning clinking gelt coins, challah cover & all-room micro-animations!
     for (const item of this.sufganiyotItems) {
       if (item.popTimer > 0) {
         item.popTimer = Math.max(0, item.popTimer - dt);
@@ -1243,12 +1563,111 @@ class HanukkahApp {
         if (curMesh) curMesh.scale.setScalar(s);
       }
     }
+    for (const d of this.jamDrips) {
+      if (d.progress < 1.0) {
+        d.progress = Math.min(1.0, d.progress + dt * d.speed);
+        // Smooth viscous gravity ooze curve
+        const ease = 1.0 - Math.pow(1.0 - d.progress, 2.2);
+        const len = Math.max(0.002, d.maxDrop * ease);
+        d.strand.scale.set(1.0 - 0.18 * ease, len, 1.0 - 0.18 * ease);
+        d.drop.position.y = -len;
+        if (d.reachesPlatter && d.progress > 0.65) {
+          d.puddle.visible = true;
+          const pu = (d.progress - 0.65) / 0.35;
+          const ps = 0.1 + 0.9 * pu;
+          d.puddle.scale.set(ps, 1.0, ps);
+        }
+      }
+    }
+    // Spinning individual gelt coins (pop up, rapid coin-flip spin, double-bounce settle!)
+    for (const c of this.geltCoins) {
+      if (c.spinTimer > 0) {
+        c.spinTimer = Math.max(0, c.spinTimer - dt);
+        const p = 1.0 - c.spinTimer / c.spinDur;
+        // Parabolic arc with subtle landing bounce
+        let lift = 0;
+        if (p < 0.72) {
+          const u = p / 0.72;
+          lift = 0.055 * Math.sin(u * Math.PI);
+        } else {
+          const u = (p - 0.72) / 0.28;
+          lift = 0.011 * Math.sin(u * Math.PI);
+        }
+        c.mesh.position.set(c.basePos.x, c.basePos.y + lift, c.basePos.z);
+        c.mesh.rotation.set(
+          c.baseRot.x + c.flipDir * Math.PI * 4.0 * p,
+          c.baseRot.y + Math.PI * 6.0 * p,
+          c.baseRot.z
+        );
+        if (c.spinTimer <= 0) {
+          c.mesh.position.copy(c.basePos);
+          c.mesh.rotation.copy(c.baseRot);
+        }
+      }
+    }
+    // Plump jiggle on velvet gelt pouch
+    if (this.geltPouchJiggle > 0 && this.geltPouch) {
+      this.geltPouchJiggle = Math.max(0, this.geltPouchJiggle - dt);
+      const u = this.geltPouchJiggle / 0.65;
+      const sq = Math.sin(u * Math.PI * 5.0) * 0.07 * u;
+      this.geltPouch.scale.set(1.0 + sq, 1.0 - sq * 1.1, 1.0 + sq);
+      if (this.geltPouchJiggle <= 0) this.geltPouch.scale.set(1, 1, 1);
+    }
+    // Regal display rotation on large heirloom silver dreidel
+    if (this.dreidelLargeSpin > 0 && this.dreidelLarge) {
+      this.dreidelLargeSpin = Math.max(0, this.dreidelLargeSpin - dt);
+      const p = 1.0 - this.dreidelLargeSpin / 1.6;
+      const ease = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
+      this.dreidelLarge.rotation.y = 0.42 + ease * Math.PI * 2.0;
+    }
+    // Smoothly lift/fold embroidered challah cover neatly back-right away from the Kiddush cup!
+    if (this.challahCover && this.challahCoverBasePos) {
+      const targetL = this.challahUncovered ? 1.0 : 0.0;
+      this.challahCoverLerp += (targetL - this.challahCoverLerp) * Math.min(1.0, dt * 6.0);
+      const l = this.challahCoverLerp;
+      this.challahCover.position.set(
+        this.challahCoverBasePos.x + 0.06 * l,
+        this.challahCoverBasePos.y + 0.05 * Math.sin(l * Math.PI) + 0.012 * l,
+        this.challahCoverBasePos.z - 0.13 * l
+      );
+      this.challahCover.rotation.x = -0.32 * l;
+      this.challahCover.rotation.z = -0.10 * l;
+      this.challahCover.scale.set(1.0 - 0.22 * l, 1.0 - 0.14 * l, 1.0 - 0.34 * l);
+    }
+    // Star of David wall medallion celebratory shimmer spin
+    if (this.starWallSpin > 0 && this.starWallR) {
+      this.starWallSpin = Math.max(0, this.starWallSpin - dt);
+      const p = 1.0 - this.starWallSpin / 1.2;
+      const ease = 1.0 - Math.pow(1.0 - p, 3.0);
+      this.starWallR.rotation.z = ease * (Math.PI / 3.0); // 60 deg hexagram symmetry!
+    }
+    // Candle box playful nudge
+    if (this.candleBoxAnim > 0 && this.candleBoxRoot) {
+      this.candleBoxAnim = Math.max(0, this.candleBoxAnim - dt);
+      const u = this.candleBoxAnim / 0.45;
+      this.candleBoxRoot.position.y = TABLE_Y + 0.008 * Math.sin(u * Math.PI);
+    }
+    // Subtle breezy curtain ripple when touched (gentle draft breath without swinging around room origin!)
+    if (this.curtainSwayTimer > 0) {
+      this.curtainSwayTimer = Math.max(0, this.curtainSwayTimer - dt);
+      const u = this.curtainSwayTimer / 1.4;
+      const wave = Math.sin(u * Math.PI * 3.0) * 0.018 * u;
+      this.curtains.forEach((c, idx) => {
+        c.mesh.position.z = c.basePos.z + wave * (idx === 0 ? 1 : 0.85);
+      });
+    }
     if (this.wineSipAnim > 0 && this.kiddushRoot) {
       this.wineSipAnim = Math.max(0, this.wineSipAnim - dt);
-      const u = this.wineSipAnim / 0.36;
+      const u = Math.min(1.0, this.wineSipAnim / 0.68);
       const lift = Math.sin(u * Math.PI);
-      this.kiddushRoot.position.y = RUNNER_Y + 0.012 * lift;
-      this.kiddushRoot.rotation.z = 0.06 * lift;
+      // Celebratory L'chaim raise + crisp cup-clink tilt wobble!
+      const clinkShake = u > 0.35 && u < 0.85 ? Math.sin(u * Math.PI * 8.0) * 0.035 : 0.0;
+      this.kiddushRoot.position.y = RUNNER_Y + 0.024 * lift;
+      this.kiddushRoot.rotation.z = 0.095 * lift + clinkShake;
+      if (this.wineSipAnim <= 0) {
+        this.kiddushRoot.position.y = RUNNER_Y;
+        this.kiddushRoot.rotation.z = 0;
+      }
     }
 
     // 4. Smooth eased camera transitions
@@ -1268,4 +1687,4 @@ class HanukkahApp {
   }
 }
 
-new HanukkahApp();
+window.hanukkahApp = new HanukkahApp();

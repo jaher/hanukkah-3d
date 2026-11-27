@@ -200,9 +200,20 @@ export class CandleFlameRig {
       targetLit: isShamash ? 1.0 : 0.0,
       currentLit: isShamash ? 1.0 : 0.0,
       igniteDelay: 0.0,
+      flareTimer: 0.0,
     };
     this.flames.push(entry);
     return entry;
+  }
+
+  /** Trigger a tactile lively flicker gust & warm flame flare on a specific flame (or all lit flames). */
+  flareFlame(entry = null) {
+    const list = entry ? [entry] : this.flames;
+    for (const f of list) {
+      if (f.currentLit > 0.05) {
+        f.flareTimer = 1.15;
+      }
+    }
   }
 
   /**
@@ -223,21 +234,26 @@ export class CandleFlameRig {
         }
       }
 
+      if (f.flareTimer > 0) {
+        f.flareTimer = Math.max(0, f.flareTimer - dt);
+      }
+      const flareBoost = f.flareTimer > 0 ? Math.sin((f.flareTimer / 1.15) * Math.PI) : 0.0;
       const lit = f.currentLit;
       const flicker =
         1.0 +
         0.055 * Math.sin(elapsed * 7.3 + f.seed * 5.1) +
         0.035 * Math.sin(elapsed * 13.7 + f.seed * 9.3) +
-        0.025 * Math.cos(elapsed * 21.1 - f.seed);
+        0.025 * Math.cos(elapsed * 21.1 - f.seed) +
+        0.38 * flareBoost * (0.7 + 0.3 * Math.sin(elapsed * 28.0 + f.seed));
 
-      f.mat.uniforms.uTime.value = elapsed;
-      f.mat.uniforms.uIntensity.value = lit;
+      f.mat.uniforms.uTime.value = elapsed + flareBoost * 0.45;
+      f.mat.uniforms.uIntensity.value = lit * (1.0 + 0.32 * flareBoost);
       f.mesh.visible = lit > 0.01;
 
       f.halo.visible = lit > 0.01;
-      const haloOp = (f.isShamash ? 0.38 : 0.31) * lit * flicker;
-      f.haloMat.opacity = haloOp;
-      const hs = f.haloBaseSize * (0.94 + 0.08 * flicker) * (0.55 + 0.45 * lit);
+      const haloOp = (f.isShamash ? 0.38 : 0.31) * lit * flicker * (1.0 + 0.45 * flareBoost);
+      f.haloMat.opacity = Math.min(0.85, haloOp);
+      const hs = f.haloBaseSize * (0.94 + 0.08 * flicker + 0.25 * flareBoost) * (0.55 + 0.45 * lit);
       f.halo.scale.set(hs, hs * 1.12, 1);
 
       if (f.isShamash) {

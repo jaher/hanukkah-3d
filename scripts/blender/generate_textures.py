@@ -740,9 +740,54 @@ def generate_winter_night_backdrop():
     save_img(sky, "winter_night_backdrop.jpg", quality=92)
 
 
+def generate_curtain_textile_textures():
+    """Generate realistic high-res woven royal-navy velvet/linen curtain fabric PBR maps (albedo, normal, roughness)."""
+    rng = np.random.default_rng(77)
+    w, h = 1024, 1024
+    ix = np.arange(w, dtype=np.float32)[None, :]
+    iy = np.arange(h, dtype=np.float32)[:, None]
+
+    # 1. Crisp woven twill / basket-weave warp & weft threads (clearly legible fabric grain!)
+    warp = 0.5 + 0.5 * np.sin(ix * (2.0 * math.pi / 6.0))
+    weft = 0.5 + 0.5 * np.sin(iy * (2.0 * math.pi / 6.0))
+    # Classic 2/2 twill weave diagonal interlock
+    twill = 0.5 + 0.5 * np.sin((ix + iy) * (2.0 * math.pi / 12.0))
+    weave = 0.45 * warp * (0.55 + 0.45 * twill) + 0.45 * weft * (1.0 - 0.45 * twill) + 0.10 * (warp * weft)
+
+    # 2. Natural woven yarn slubbing (subtle thicker horizontal & vertical thread strands)
+    slub_x = np.sin(ix * 0.085 + 0.7 * np.sin(iy * 0.015)) * 0.5 + 0.5
+    slub_y = np.sin(iy * 0.115 + 0.5 * np.sin(ix * 0.018)) * 0.5 + 0.5
+    slub_fine = rng.normal(0.0, 0.055, (h, w)).astype(np.float32)
+
+    # 3. Soft velvet nap / subtle woven sheen clouds (breaks up any flat plastic look!)
+    nap = (
+        0.5
+        + 0.22 * np.sin(ix * 0.012 + np.sin(iy * 0.009) * 2.2)
+        + 0.18 * np.cos(iy * 0.016 - np.sin(ix * 0.011) * 1.8)
+        + 0.10 * np.sin((ix - iy) * 0.024)
+    )
+
+    # Rich royal-navy drapery textile albedo (warm indigo weave with slightly lighter thread crowns & deep interstitial shadows)
+    tone = np.clip(0.68 + 0.34 * weave + 0.12 * slub_x + 0.10 * slub_y + 0.14 * (nap - 0.5) + slub_fine, 0.45, 1.25)
+    r = np.clip(22.0 * tone + 8.0 * weave, 10, 95).astype(np.uint8)
+    g = np.clip(48.0 * tone + 14.0 * weave, 22, 138).astype(np.uint8)
+    b = np.clip(104.0 * tone + 22.0 * weave, 52, 205).astype(np.uint8)
+    save_img(Image.fromarray(np.stack([r, g, b], axis=-1)), "curtain_albedo.jpg", quality=92)
+
+    # Height -> crisp 512x512 RGB tangent-space normal map (tiles 2.8x8.2 across curtain -> crisp weave & fast GLB load!)
+    height = np.clip(0.50 + 0.30 * (weave - 0.5) + 0.11 * (slub_x - 0.5) + 0.11 * (slub_y - 0.5) + 0.06 * (nap - 0.5), 0.0, 1.0)
+    height_img = Image.fromarray((height * 255).astype(np.uint8)).resize((512, 512), Image.Resampling.LANCZOS)
+    save_height_as_normal_map(height_img, "curtain_normal.png", strength=3.4)
+
+    # Roughness map: velvety matte weave troughs (~0.92) vs subtly lustrous thread tops (~0.62)
+    rough = np.clip(0.90 - 0.24 * weave - 0.08 * (nap - 0.5), 0.56, 0.96)
+    save_img(Image.fromarray((rough * 255).astype(np.uint8)).resize((512, 512), Image.Resampling.LANCZOS), "curtain_rough.jpg", quality=85)
+
+
 def main():
     generate_wood_textures()
     generate_textile_textures()
+    generate_curtain_textile_textures()
     generate_dreidel_and_gelt_textures()
     generate_food_and_ceramic_textures()
     generate_carved_silver_textures()

@@ -449,14 +449,18 @@ def build_gelt_and_pouch():
         mat=mat_pouch,
     )
     pouch.location = (-0.082, 0.015, 0.0)
-    parts.append(pouch)
+    # (pouch is joined separately into GeltPouch_Mesh below so every coin stays individually clickable!)
+
+    # Keep every individual coin as its own named mesh (centered at its own pivot!) so clicking ANY coin
+    # spins & flips it individually with a realistic metallic clink sound!
+    pouch_parts = [pouch]
 
     # Golden braided drawstring cord hugging the cinched waist with soft curved ribbon tails draping organically down the belly
     cord_pts = []
     for i in range(49):
         a = 2 * math.pi * i / 48
         cord_pts.append(Vector((-0.082 + 0.0192 * math.cos(a), 0.015 + 0.0192 * math.sin(a), 0.0705)))
-    parts.append(create_tube_along_points("PouchCordRing", cord_pts, radii=0.0021, radial_segs=10, cap_ends=False, mat=mat_cord))
+    pouch_parts.append(create_tube_along_points("PouchCordRing", cord_pts, radii=0.0021, radial_segs=10, cap_ends=False, mat=mat_cord))
 
     # Central knot + 2 softly draped gold cord tails hugging the curved pouch contour cleanly
     bm_kn = bmesh.new()
@@ -468,7 +472,7 @@ def build_gelt_and_pouch():
     bpy.context.collection.objects.link(kno)
     set_smooth(kno, 60.0)
     kno.data.materials.append(mat_cord)
-    parts.append(kno)
+    pouch_parts.append(kno)
 
     for sgn in (-1, 1):
         tail_pts = [
@@ -479,9 +483,10 @@ def build_gelt_and_pouch():
             Vector((-0.082 + sgn * 0.022, -0.035, 0.018)),
             Vector((-0.082 + sgn * 0.025, -0.032, 0.006)),
         ]
-        parts.append(create_tube_along_points(f"PouchTail_{sgn}", tail_pts, radii=0.0018, radial_segs=8, mat=mat_cord))
+        pouch_parts.append(create_tube_along_points(f"PouchTail_{sgn}", tail_pts, radii=0.0018, radial_segs=8, mat=mat_cord))
 
-    join_objects(parts, "Gelt_Cluster")
+    # Join only the velvet pouch + cord into GeltPouch_Mesh, leaving all Coin* meshes individual & clickable!
+    join_objects(pouch_parts, "GeltPouch_Mesh")
     export_glb(os.path.join(MODELS_DIR, "gelt.glb"))
 
     render_previews(
