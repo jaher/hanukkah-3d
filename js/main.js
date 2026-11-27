@@ -11,17 +11,17 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { GatedAssetLoader } from './asset-loader.js?v=20261127-4';
-import { computeHanukkahNight, HANUKKAH_2026_NIGHT_DATES, isShabbatForSelection } from './hanukkah-calendar.js?v=20261127-4';
-import { CandleFlameRig } from './flames.js?v=20261127-4';
-import { createWinterNightExterior } from './winter-window.js?v=20261127-4';
-import { HanukkahMusicPlayer } from './hanukkah-music.js?v=20261127-4';
-import { RoomSoundEffects } from './sfx.js?v=20261127-4';
-import { GeltCoinPhysics } from './coin-physics.js?v=20261127-4';
-import { ChallahClothCover } from './phys-cloth.js?v=20261127-4';
-import { VelvetCurtainPanel } from './curtain-cloth.js?v=20261127-4';
+import { GatedAssetLoader } from './asset-loader.js?v=20261127-5';
+import { computeHanukkahNight, HANUKKAH_2026_NIGHT_DATES, isShabbatForSelection } from './hanukkah-calendar.js?v=20261127-5';
+import { CandleFlameRig } from './flames.js?v=20261127-5';
+import { createWinterNightExterior } from './winter-window.js?v=20261127-5';
+import { HanukkahMusicPlayer } from './hanukkah-music.js?v=20261127-5';
+import { RoomSoundEffects } from './sfx.js?v=20261127-5';
+import { GeltCoinPhysics } from './coin-physics.js?v=20261127-5';
+import { ChallahClothCover } from './phys-cloth.js?v=20261127-5';
+import { VelvetCurtainPanel } from './curtain-cloth.js?v=20261127-5';
 
-const ASSET_VERSION = '20261127-4';
+const ASSET_VERSION = '20261127-5';
 const vUrl = (path) => `${path}?v=${ASSET_VERSION}`;
 
 // Exact world heights matching Blender exports (1 unit = 1 meter)
@@ -931,9 +931,17 @@ class HanukkahApp {
     this.registerInteractive(starWallR, 'star_wall');
     this.scene.add(starWallR);
 
-    // Hanging Crystalline & Silver Star of David Ornament in the Winter Window (clickable crystal chime & spin!)
+    // Hanging Crystalline & Silver Star of David Ornament recessed cleanly INSIDE the window frame
+    // (Z = -2.235: strictly behind the curtains at Z ~ -2.055 from every angle, and clear of glass at Z = -2.368!)
     const starWin = enableShadows(assets.models.star_window.scene, 1.45);
-    starWin.position.set(0.0, 2.04, -2.06);
+    starWin.position.set(0.0, 2.04, -2.235);
+    starWin.traverse((obj) => {
+      if (!obj.isMesh || !obj.material) return;
+      const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+      for (const m of mats) {
+        m.depthTest = true;
+      }
+    });
     this.registerInteractive(starWin, 'star_window');
     this.scene.add(starWin);
     this.windowStar = starWin;
