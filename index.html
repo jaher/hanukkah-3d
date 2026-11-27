@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Hanukkah 3D — Festival of Lights</title>
-  <link rel="stylesheet" href="styles.css?v=20261127-6" />
+  <link rel="stylesheet" href="styles.css?v=20261127-7" />
   <script type="importmap">
     {
       "imports": {
@@ -21,7 +21,7 @@
   <div id="loading-overlay" role="dialog" aria-modal="true" aria-labelledby="loading-title">
     <div class="loading-card">
       <div class="loading-emblem" aria-hidden="true">✡</div>
-      <h1 id="loading-title">Hanukkah 2026</h1>
+      <h1 id="loading-title">Hanukkah</h1>
       <p class="loading-hebrew" lang="he" dir="rtl">חג אורים שמח</p>
       <p id="loading-status" class="loading-status">Preparing the room &amp; silver hanukkiah…</p>
 
@@ -79,10 +79,15 @@
       <div class="night-panel">
         <div class="night-header">
           <span id="night-label" class="night-label">Shamash Lit</span>
+          <span class="year-stepper" role="group" aria-label="Preview Hanukkah year">
+            <button id="btn-year-prev" class="year-btn" type="button" title="Previous year" aria-label="Previous year">‹</button>
+            <span id="hanukkah-year" class="year-value"></span>
+            <button id="btn-year-next" class="year-btn" type="button" title="Next year" aria-label="Next year">›</button>
+          </span>
           <span id="tradition-hint" class="tradition-hint">Placed right → left · Lit left → right · Shamash always lit</span>
         </div>
         <div class="night-controls" role="group" aria-label="Hanukkah night selector">
-          <button class="night-btn" data-night="auto" type="button" title="Use live Hanukkah 2026 calendar date">Auto</button>
+          <button class="night-btn" data-night="auto" type="button" title="Use live Hanukkah calendar date">Auto</button>
           <button class="night-btn" data-night="0" type="button" title="Shamash candle only">0</button>
           <button class="night-btn" data-night="1" type="button">1</button>
           <button class="night-btn" data-night="2" type="button">2</button>
@@ -100,6 +105,6 @@
   <!-- Floating restore button when HUD is hidden -->
   <button id="btn-show-hud" class="restore-hud hidden" type="button" title="Show controls (H)">Show Controls</button>
 
-  <script type="module" src="js/main.js?v=20261127-6"></script>
+  <script type="module" src="js/main.js?v=20261127-7"></script>
 </body>
 </html>

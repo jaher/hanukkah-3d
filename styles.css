@@ -447,11 +447,53 @@ button {
 
 .night-header {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
-  gap: 8px 18px;
+  gap: 6px 14px;
   width: 100%;
   flex-wrap: wrap;
+}
+
+.year-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(196, 214, 246, 0.22);
+}
+
+.year-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--silver);
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.year-btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+}
+
+.year-value {
+  font-size: 12px;
+  font-weight: 600;
+  color: #ffe2ad;
+  font-variant-numeric: tabular-nums;
+  padding: 0 4px;
+  min-width: 36px;
+  text-align: center;
 }
 
 .night-label {

@@ -4,24 +4,24 @@
  * - Gated asset loading with real AbortController Cancel & Retry
  * - Blender-modeled heirloom 925 sterling silver hanukkiah & traditional Judaica
  * - Cycles-baked GI/AO lightmaps paired with dynamic flickering candlelight & soft shadows
- * - Automatic Hanukkah 2026 calendar (Dec 4–12) with traditional right-to-left placement
- *   and sequential left-to-right lighting; shamash stays lit at all times
+ * - Universal Hebrew calendar Hanukkah calculation (25 Kislev, 8 nights, any year) with
+ *   traditional right-to-left placement and sequential left-to-right lighting; shamash stays lit at all times
  * - Interactive dreidel spin physics & smooth eased camera presets
  */
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { GatedAssetLoader } from './asset-loader.js?v=20261127-6';
-import { computeHanukkahNight, HANUKKAH_2026_NIGHT_DATES, isShabbatForSelection } from './hanukkah-calendar.js?v=20261127-6';
-import { CandleFlameRig } from './flames.js?v=20261127-6';
-import { createWinterNightExterior } from './winter-window.js?v=20261127-6';
-import { HanukkahMusicPlayer } from './hanukkah-music.js?v=20261127-6';
-import { RoomSoundEffects } from './sfx.js?v=20261127-6';
-import { GeltCoinPhysics } from './coin-physics.js?v=20261127-6';
-import { ChallahClothCover } from './phys-cloth.js?v=20261127-6';
-import { VelvetCurtainPanel } from './curtain-cloth.js?v=20261127-6';
+import { GatedAssetLoader } from './asset-loader.js?v=20261127-7';
+import { computeHanukkahNight, getHanukkahSchedule, isShabbatForSelection, resolveHanukkahSeasonYear } from './hanukkah-calendar.js?v=20261127-7';
+import { CandleFlameRig } from './flames.js?v=20261127-7';
+import { createWinterNightExterior } from './winter-window.js?v=20261127-7';
+import { HanukkahMusicPlayer } from './hanukkah-music.js?v=20261127-7';
+import { RoomSoundEffects } from './sfx.js?v=20261127-7';
+import { GeltCoinPhysics } from './coin-physics.js?v=20261127-7';
+import { ChallahClothCover } from './phys-cloth.js?v=20261127-7';
+import { VelvetCurtainPanel } from './curtain-cloth.js?v=20261127-7';
 
-const ASSET_VERSION = '20261127-6';
+const ASSET_VERSION = '20261127-7';
 const vUrl = (path) => `${path}?v=${ASSET_VERSION}`;
 
 // Exact world heights matching Blender exports (1 unit = 1 meter)
@@ -159,7 +159,13 @@ class HanukkahApp {
     this.isLoaded = false;
     this.mode = 'auto'; // 'auto' or 'manual'
     this.activeNight = 0; // 0..8 (0 = shamash only)
+    this.nowOverride = null;
     this.calendarInfo = computeHanukkahNight(new Date());
+    this.previewYear = this.calendarInfo.seasonYear;
+    const loadingTitle = document.getElementById('loading-title');
+    if (loadingTitle) {
+      loadingTitle.textContent = `Hanukkah ${this.previewYear}`;
+    }
 
     // Scene references populated after gated load completes
     this.scene = null;
@@ -249,7 +255,9 @@ class HanukkahApp {
 
     // Expose clean API for automated verification & date inspection
     window.hanukkahApp = {
-      computeNight: (dateInput) => computeHanukkahNight(dateInput ? new Date(dateInput) : new Date()),
+      computeNight: (dateInput) => computeHanukkahNight(dateInput ? new Date(dateInput) : this.getEffectiveNow()),
+      getSchedule: (year) => getHanukkahSchedule(year || this.previewYear),
+      setYear: (year, instant = false) => this.selectYear(year, { instant }),
       setNight: (n, instant = false) => this.selectNight(n, { instant }),
       setAutoNight: () => this.selectAutoNight(),
       setCamera: (preset, instant = false) => this.goToCamera(preset, instant),
@@ -268,13 +276,14 @@ class HanukkahApp {
         isLoaded: this.isLoaded,
         mode: this.mode,
         activeNight: this.activeNight,
+        previewYear: this.previewYear,
         calendar: this.calendarInfo,
         musicPlaying: this.musicPlayer.isPlaying,
         musicTrack: this.musicPlayer.currentTrack.title,
         rebbeSpeaking: Boolean(this.rebbeSpeechActive || this.sfx.isRebbeSpeaking()),
         curtainsClosed: this.curtainPanels.map((p) => p.isClosed),
         roomLightsOff: this.roomLightsOff,
-        isShabbat: isShabbatForSelection(this.activeNight, this.mode, new Date()),
+        isShabbat: isShabbatForSelection(this.activeNight, this.mode, this.getEffectiveNow(), this.previewYear),
         wineLevel: this.wineLevel,
         sufganiyotStates: this.sufganiyotItems.map((s) => s.state),
         latkesRemaining: this.latkeItems.filter((l) => !l.eaten).length,
@@ -1146,7 +1155,7 @@ class HanukkahApp {
     }
 
     // Challah & cover appear ONLY on Shabbat; electric lights MUST stay ON on Shabbat!
-    const isShabbat = isShabbatForSelection(n, this.mode, new Date());
+    const isShabbat = isShabbatForSelection(n, this.mode, this.getEffectiveNow(), this.previewYear);
     if (this.challahRoot) {
       this.challahRoot.visible = isShabbat;
     }
@@ -1158,6 +1167,18 @@ class HanukkahApp {
     this.updateNightHUD();
   }
 
+  getEffectiveNow() {
+    return this.nowOverride ? new Date(this.nowOverride.getTime()) : new Date();
+  }
+
+  selectYear(year, opts = {}) {
+    const y = Math.max(1900, Math.min(2200, Math.round(year)));
+    this.previewYear = y;
+    this.mode = 'manual';
+    const nextNight = this.activeNight > 0 ? this.activeNight : 1;
+    this.applyNightLighting(nextNight, opts);
+  }
+
   selectNight(n, opts = {}) {
     this.mode = 'manual';
     this.applyNightLighting(n, opts);
@@ -1165,34 +1186,45 @@ class HanukkahApp {
 
   selectAutoNight(opts = {}) {
     this.mode = 'auto';
-    this.calendarInfo = computeHanukkahNight(new Date());
+    const now = this.getEffectiveNow();
+    this.calendarInfo = computeHanukkahNight(now);
+    this.previewYear = this.calendarInfo.seasonYear;
     this.applyNightLighting(this.calendarInfo.night, opts);
   }
 
   updateNightHUD() {
     const dateStatus = document.getElementById('date-status');
     const nightLabel = document.getElementById('night-label');
+    const yearValue = document.getElementById('hanukkah-year');
+    const sched = getHanukkahSchedule(this.previewYear);
+
+    if (yearValue) {
+      yearValue.textContent = String(this.previewYear);
+      yearValue.title = `Hanukkah ${this.previewYear} (${sched.rangeLabel} · Hebrew year ${sched.hebrewYear})`;
+    }
 
     if (this.mode === 'auto') {
       if (dateStatus) dateStatus.textContent = this.calendarInfo.statusText;
       if (this.activeNight === 0) {
-        if (nightLabel) nightLabel.textContent = 'Auto · Shamash Lit (Select 1–8 to preview)';
+        if (nightLabel) nightLabel.textContent = `Auto · ${this.calendarInfo.statusText}`;
       } else {
-        if (nightLabel) nightLabel.textContent = `Night ${this.activeNight} of 8 · ${this.activeNight} + Shamash Lit`;
+        const shabTag = isShabbatForSelection(this.activeNight, 'auto', this.getEffectiveNow(), this.previewYear) ? ' · Shabbat' : '';
+        if (nightLabel) nightLabel.textContent = `Night ${this.activeNight} · ${sched.nightLabels[this.activeNight]}${shabTag}`;
       }
     } else {
-      const dateStr = HANUKKAH_2026_NIGHT_DATES[this.activeNight];
+      const dateStr = sched.nightLabels[this.activeNight];
+      const shabTag = isShabbatForSelection(this.activeNight, 'manual', this.getEffectiveNow(), this.previewYear) ? ' · Shabbat' : '';
       if (dateStatus) {
         dateStatus.textContent =
           this.activeNight === 0
-            ? 'Preview · Shamash Only (Hanukkah 2026: Dec 4–12)'
+            ? `Preview · Shamash Only (Hanukkah ${this.previewYear}: ${sched.rangeLabel})`
             : `Preview · Night ${this.activeNight} (${dateStr})`;
       }
       if (nightLabel) {
         nightLabel.textContent =
           this.activeNight === 0
-            ? 'Shamash Candle Lit (Always On)'
-            : `Night ${this.activeNight} · ${this.activeNight} ${this.activeNight === 1 ? 'Candle' : 'Candles'} + Shamash`;
+            ? `Shamash Only · Hanukkah ${this.previewYear} (${sched.rangeLabel})`
+            : `Night ${this.activeNight} · ${dateStr}${shabTag}`;
       }
     }
 
@@ -1201,7 +1233,12 @@ class HanukkahApp {
       if (val === 'auto') {
         btn.classList.toggle('active', this.mode === 'auto');
       } else {
-        btn.classList.toggle('active', Number(val) === this.activeNight);
+        const num = Number(val);
+        btn.classList.toggle('active', num === this.activeNight);
+        if (num >= 1 && num <= 8 && sched.nightLabels[num]) {
+          const isShab = isShabbatForSelection(num, 'manual', this.getEffectiveNow(), this.previewYear);
+          btn.title = `Night ${num}: ${sched.nightLabels[num]}${isShab ? ' (Shabbat)' : ''}`;
+        }
       }
     });
   }
@@ -1520,7 +1557,7 @@ class HanukkahApp {
 
   toggleRoomLamps() {
     // On Shabbat (computed dynamically from the selected date), electric lights cannot be switched off!
-    if (isShabbatForSelection(this.activeNight, this.mode, new Date())) {
+    if (isShabbatForSelection(this.activeNight, this.mode, this.getEffectiveNow(), this.previewYear)) {
       this.roomLightsOff = false;
       this.showActionToast(
         '✡',
@@ -1749,6 +1786,15 @@ class HanukkahApp {
       });
     });
 
+    const yearPrevBtn = document.getElementById('btn-year-prev');
+    if (yearPrevBtn) {
+      yearPrevBtn.addEventListener('click', () => this.selectYear(this.previewYear - 1));
+    }
+    const yearNextBtn = document.getElementById('btn-year-next');
+    if (yearNextBtn) {
+      yearNextBtn.addEventListener('click', () => this.selectYear(this.previewYear + 1));
+    }
+
     document.querySelectorAll('.camera-bar .pill[data-cam]').forEach((btn) => {
       btn.addEventListener('click', () => this.goToCamera(btn.dataset.cam));
     });
@@ -1873,14 +1919,31 @@ class HanukkahApp {
 
   applyInitialStateFromURL() {
     const params = new URLSearchParams(window.location.search);
+    const dateParam = params.get('date');
+    const yearParam = params.get('year');
     const nightParam = params.get('night');
     const camParam = params.get('cam');
     const hudParam = params.get('hud');
 
+    if (dateParam) {
+      // Parse YYYY-MM-DD or full ISO string into local date for calendar testing/sharing
+      const m = dateParam.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      const parsed = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 19, 0, 0) : new Date(dateParam);
+      if (!Number.isNaN(parsed.getTime())) {
+        this.nowOverride = parsed;
+        this.previewYear = resolveHanukkahSeasonYear(parsed);
+      }
+    }
+    if (yearParam !== null && !Number.isNaN(Number(yearParam))) {
+      this.previewYear = Math.max(1900, Math.min(2200, Math.round(Number(yearParam))));
+    }
+
     if (nightParam !== null && !Number.isNaN(Number(nightParam))) {
       this.selectNight(Number(nightParam), { instant: true });
+    } else if (yearParam !== null && !Number.isNaN(Number(yearParam)) && !dateParam) {
+      this.selectNight(1, { instant: true });
     } else {
-      // Automatic calendar calculation from live date!
+      // Automatic Hebrew calendar calculation from live date (any year)!
       this.selectAutoNight({ instant: true });
     }
 
