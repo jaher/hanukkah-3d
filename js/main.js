@@ -694,8 +694,8 @@ class HanukkahApp {
     // Braided Challah on Carved Walnut Board with Real Cloth-Simulated Liftable Embroidered Challah Cover!
     // Seated cleanly centered on the flat embroidered runner plane so all 4 draped corners lie flush on the surface!
     const challah = enableShadows(assets.models.challah.scene, 1.05);
-    challah.position.set(0.61, RUNNER_Y, -0.38);
-    challah.rotation.y = -0.18;
+    challah.position.set(0.62, RUNNER_Y, -0.37);
+    challah.rotation.y = -0.14;
     this.challahCover = challah.getObjectByName('Challah_Cover_Group');
     if (this.challahCover) {
       this.challahCoverBasePos = this.challahCover.position.clone();
