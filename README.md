@@ -2,45 +2,30 @@
 
 ### **[Launch the Live 3D Hanukkah Room → https://jaher.github.io/hanukkah-3d/](https://jaher.github.io/hanukkah-3d/)**
 
-A photorealistic, interactive **Three.js** Hanukkah room featuring a deeply carved 925 sterling silver nine-branched *hanukkiah* (menorah), traditional Judaica modeled in headless Blender, live animated candlelight, a photorealistic winter night view of Jerusalem's Old City through the window, traditional Hanukkah music, and automatic night-by-night lighting for **Hanukkah 2026 (December 4–12)**.
-
-![Hanukkah 3D — Warm Room Overview on Night 8](docs/screenshots/room-overview.jpg)
+A photorealistic, interactive **Three.js** Hanukkah room featuring a deeply carved 925 sterling silver nine-branched *hanukkiah* (menorah), traditional Judaica and festive foods modeled in headless Blender, live animated candlelight, a photorealistic winter night view of Jerusalem's Old City through the window, traditional Hanukkah music, and automatic night-by-night lighting for **Hanukkah 2026 (December 4–12)**.
 
 ---
 
-## Night-by-Night Lighting (Hanukkah 2026: Dec 4–12)
+## Shabbat & Non-Shabbat Views (Hanukkah 2026: Dec 4–12)
 
 The site computes the active night automatically from the current date (Night 1 beginning the evening of **Friday, Dec 4, 2026** through Night 8 on **Friday, Dec 11**, ending at nightfall on **Saturday, Dec 12**). Per tradition:
 
 - The raised central ***shamash*** stays lit at all times.
 - On Night *N*, *N* candles are placed **right-to-left** and ignited sequentially **left-to-right** (starting from the newest leftmost candle).
-- **Shabbat Challah**: The braided challah and its embroidered cover appear dynamically only when the selected night falls on Shabbat (Friday evening — **Night 1, Fri Dec 4** and **Night 8, Fri Dec 11** in 2026) and are hidden completely on non-Shabbat nights.
+- **Shabbat Challah**: Computed dynamically from the selected calendar date—the braided challah and its embroidered live-physics cover appear **only on Shabbat** (Friday evening: **Night 1, Fri Dec 4** and **Night 8, Fri Dec 11** in 2026) and are completely hidden on non-Shabbat nights.
 - Use the on-screen night selector (`Auto`, `0`, `1`–`8`) or keys `0`–`8` to preview any night.
 
-| Shamash Only (Always Lit) | Night 1 — Fri, Dec 4 (Far Right + Shamash) |
-| :---: | :---: |
-| ![Shamash Lit Only](docs/screenshots/hanukkiah-shamash.jpg) | ![Night 1 — One Candle Far Right plus Shamash](docs/screenshots/hanukkiah-night1.jpg) |
+### Non-Shabbat — Night 3 (Sun, Dec 6, 2026 · 3 Candles + Shamash · Challah Hidden)
+![Non-Shabbat — Hanukkah Night 3 with 3 candles plus shamash lit, crispy latkes with sour cream and applesauce, sufganiyot, dreidels, gelt, and no challah](docs/screenshots/non-shabbat-night3.jpg)
 
-| Night 5 — Tue, Dec 8 (5 Candles Right-to-Left + Shamash) | Night 8 — Fri, Dec 11 (All 8 Candles + Shamash) |
-| :---: | :---: |
-| ![Night 5 — Five Candles plus Shamash](docs/screenshots/hanukkiah-night5.jpg) | ![Night 8 — Full Hanukkiah Lit](docs/screenshots/hanukkiah-night8.jpg) |
-
----
-
-## Room Views & Traditional Judaica
-
-Every prop in the room was modeled in headless Blender (`scripts/blender/`) with PBR materials and tangent-space normal maps, exported to `.glb`, paired with Cycles-baked GI/AO architectural lightmaps, and rendered live in WebGL via Three.js.
-
-| Dreidels, Embossed Chocolate Gelt & Velvet Pouch | Crispy Latkes, Sufganiyot, Kiddush Cup & Shabbat Challah |
-| :---: | :---: |
-| ![Heirloom Filigree Dreidel, Playable Dreidels, and Chocolate Gelt](docs/screenshots/dreidel-gelt.jpg) | ![Crispy Potato Latkes with Sour Cream and Applesauce, Sufganiyot Platter, Sterling Silver Kiddush Cup, and Shabbat Challah](docs/screenshots/feast-table.jpg) |
-
-### Jerusalem Old City Winter Night Window
-![Photorealistic Jerusalem Old City Winter Night Skyline — Golden Limestone Rooftops, Western Wall, and Dome of the Rock through the Window](docs/screenshots/winter-window.jpg)
+### Shabbat — Night 8 (Fri, Dec 11, 2026 · All 8 Candles + Shamash · Challah & Cover Visible)
+![Shabbat — Hanukkah Night 8 with all 8 candles plus shamash lit and the braided challah with its embroidered live-physics cover visible on the right](docs/screenshots/shabbat-night8.jpg)
 
 ---
 
 ## Features
+
+Every prop in the room was modeled in headless Blender (`scripts/blender/`) with PBR materials and tangent-space normal maps, exported to `.glb`, paired with Cycles-baked GI/AO architectural lightmaps, and rendered live in WebGL via Three.js.
 
 - **Carved 925 Sterling Silver Hanukkiah**: Stepped gadrooned domed pedestal on four baroque scrolled acanthus feet, repoussé floral & grapevine chasing with dark oxidized patina crevices, spiral-roped branches, double-tier filigree scrollwork, floral rosettes, scalloped bobeches, unobstructed 3D Star of David crest with sapphire cabochon, and a distinctly elevated *shamash*.
 - **Photorealistic Fire & Lighting**: Custom GLSL teardrop flame shader with subtle translucent blue combustion base, incandescent core, golden-amber flickering tip, soft additive glow halos, and shadow-casting flickering dynamic point lights.
@@ -67,7 +52,7 @@ Zero build step — static HTML/CSS/ES modules loading Three.js via CDN import m
 python3 -m http.server 8080
 ```
 
-Open `http://localhost:8080` in your browser. To refresh all README screenshots after visual changes:
+Open `http://localhost:8080` in your browser. To refresh the README screenshots after visual changes:
 
 ```bash
 python3 scripts/capture_screenshots.py
