@@ -728,9 +728,29 @@ class HanukkahApp {
       sheenColor: new THREE.Color(0xf6f0e4),
       side: THREE.DoubleSide,
     });
-    this.challahCloth = new ChallahClothCover(challah, liveCoverMat);
-    this.registerInteractive(challah, 'challah');
     this.scene.add(challah);
+    challah.updateMatrixWorld(true);
+    // Pass exact finite walnut dining-table footprint (1.70 x 0.95 m centered at Z = TABLE_Z = -0.35)
+    // so any part of the challah cover extending past the table edge drapes downward under gravity!
+    this.challahCloth = new ChallahClothCover(challah, liveCoverMat, {
+      minX: -0.850,
+      maxX: 0.850,
+      minZ: TABLE_Z - 0.475,   // -0.825 back edge
+      maxZ: TABLE_Z + 0.475,   // +0.125 front edge
+      topY: TABLE_Y,           //  0.760 bare walnut tabletop
+      runnerMinZ: TABLE_Z - 0.185, // -0.535 embroidered runner back edge
+      runnerMaxZ: TABLE_Z + 0.185, // -0.165 embroidered runner front edge
+      runnerTopY: RUNNER_Y,    //  0.7632 embroidered runner surface
+      botY: TABLE_Y - 0.036,   //  0.724 bottom of walnut tabletop slab
+      bevelR: 0.010,           // smooth rounded walnut edge for natural cloth drape
+      apronMinX: -0.753,
+      apronMaxX: 0.753,
+      apronMinZ: TABLE_Z - 0.418,
+      apronMaxZ: TABLE_Z + 0.418,
+      apronBotY: 0.640,
+      floorY: 0.0,
+    });
+    this.registerInteractive(challah, 'challah');
 
     // Hanukkah Candle Box + Spare Twisted Candles + Wooden Matches (clickable match strike!)
     const candleBox = enableShadows(assets.models.candle_box.scene, 1.05);
@@ -767,9 +787,9 @@ class HanukkahApp {
       this.registerInteractive(vObj, 'votive', { flame: vf });
     });
 
-    // Respectful Ornate Baroque Gilded Framed Portrait of the Lubavitcher Rebbe (clickable Hanukkah quote!)
+    // Respectful Ornate Baroque Gilded Framed Portrait of the Lubavitcher Rebbe (centered inside UpperWallFrame_L at X = -1.94!)
     const rebbePortrait = enableShadows(assets.models.rebbe_portrait.scene, 1.35);
-    rebbePortrait.position.set(-2.06, 1.44, -2.18);
+    rebbePortrait.position.set(-1.94, 1.44, -2.18);
     rebbePortrait.traverse((obj) => {
       if (obj.isMesh && obj.name.includes('Portrait_Glass')) {
         obj.material.transparent = true;
@@ -783,9 +803,9 @@ class HanukkahApp {
     this.registerInteractive(rebbePortrait, 'rebbe_portrait');
     this.scene.add(rebbePortrait);
 
-    // Ornate Brushed-Silver & Cobalt Star of David Wall Medallion (clickable silver chime & gleam!)
+    // Ornate Brushed-Silver & Cobalt Star of David Wall Medallion (centered inside UpperWallFrame_R at X = +1.94!)
     const starWallR = enableShadows(assets.models.star_wall.scene, 1.35);
-    starWallR.position.set(2.04, 1.40, -2.18);
+    starWallR.position.set(1.94, 1.40, -2.18);
     this.starWallR = starWallR;
     this.registerInteractive(starWallR, 'star_wall');
     this.scene.add(starWallR);
@@ -959,22 +979,26 @@ class HanukkahApp {
     const nightLabel = document.getElementById('night-label');
 
     if (this.mode === 'auto') {
-      dateStatus.textContent = this.calendarInfo.statusText;
+      if (dateStatus) dateStatus.textContent = this.calendarInfo.statusText;
       if (this.activeNight === 0) {
-        nightLabel.textContent = 'Auto · Shamash Lit (Select 1–8 to preview)';
+        if (nightLabel) nightLabel.textContent = 'Auto · Shamash Lit (Select 1–8 to preview)';
       } else {
-        nightLabel.textContent = `Night ${this.activeNight} of 8 · ${this.activeNight} + Shamash Lit`;
+        if (nightLabel) nightLabel.textContent = `Night ${this.activeNight} of 8 · ${this.activeNight} + Shamash Lit`;
       }
     } else {
       const dateStr = HANUKKAH_2026_NIGHT_DATES[this.activeNight];
-      dateStatus.textContent =
-        this.activeNight === 0
-          ? 'Preview · Shamash Only (Hanukkah 2026: Dec 4–12)'
-          : `Preview · Night ${this.activeNight} (${dateStr})`;
-      nightLabel.textContent =
-        this.activeNight === 0
-          ? 'Shamash Candle Lit (Always On)'
-          : `Night ${this.activeNight} · ${this.activeNight} ${this.activeNight === 1 ? 'Candle' : 'Candles'} + Shamash`;
+      if (dateStatus) {
+        dateStatus.textContent =
+          this.activeNight === 0
+            ? 'Preview · Shamash Only (Hanukkah 2026: Dec 4–12)'
+            : `Preview · Night ${this.activeNight} (${dateStr})`;
+      }
+      if (nightLabel) {
+        nightLabel.textContent =
+          this.activeNight === 0
+            ? 'Shamash Candle Lit (Always On)'
+            : `Night ${this.activeNight} · ${this.activeNight} ${this.activeNight === 1 ? 'Candle' : 'Candles'} + Shamash`;
+      }
     }
 
     document.querySelectorAll('.night-btn').forEach((btn) => {
@@ -1382,9 +1406,12 @@ class HanukkahApp {
       btn.addEventListener('click', () => this.goToCamera(btn.dataset.cam));
     });
 
-    document.getElementById('btn-spin-dreidel').addEventListener('click', () => {
-      this.triggerDreidelSpin();
-    });
+    const spinBtn = document.getElementById('btn-spin-dreidel');
+    if (spinBtn) {
+      spinBtn.addEventListener('click', () => {
+        this.triggerDreidelSpin();
+      });
+    }
 
     document.getElementById('btn-music').addEventListener('click', () => {
       this.musicFirstTouchHandled = true;

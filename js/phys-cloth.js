@@ -46,6 +46,12 @@ export class PhysCloth {
     this.spheres = [];
     /** Optional oval table board collider { rx, rz, topY } */
     this.ovalBoard = null;
+    /**
+     * Optional finite dining-table solid footprint collider in WORLD coordinates,
+     * paired with local<->world matrices so overhanging cloth drapes down the sides of the table under gravity!
+     * { minX, maxX, minZ, maxZ, topY, runnerMinZ, runnerMaxZ, runnerTopY, botY, bevelR, floorY, toWorld, toLocal }
+     */
+    this.tableBox = null;
 
     // Initialize particle positions
     for (let y = 0; y < H; y++) {
@@ -663,28 +669,143 @@ export class PhysCloth {
         }
       }
 
-      // 2. Oval carved walnut challah board collision (smooth top & beveled rim)
+      // 2. Solid 3D Rounded-Rim Oval Challah Plate/Board Collider (ZERO plate clipping or chord cutting!)
       if (board) {
-        const ex = px / (board.rx + margin);
-        const ez = pz / (board.rz + margin);
-        const ell = ex * ex + ez * ez;
-        const topLimit = board.topY + margin;
-        if (ell < 1.0 && py < topLimit) {
-          // If close to the outer beveled rim, push gently outward; otherwise rest on top of the board
-          const radialGap = (1.0 - Math.sqrt(ell)) * Math.min(board.rx, board.rz);
-          const vertGap = topLimit - py;
-          if (vertGap <= radialGap * 1.4) {
-            py = topLimit;
-          } else if (ell > 1e-8) {
-            const scale = 1.0 / Math.sqrt(ell);
-            px *= scale;
-            pz *= scale;
+        const bMargin = margin + 0.0025; // extra chord clearance so triangle edges never slice the rounded plate rim
+        const bevel = 0.0055;
+        const innerRx = Math.max(0.01, board.rx - bevel);
+        const innerRz = Math.max(0.01, board.rz - bevel);
+        const innerTop = Math.max(0.002, board.topY - bevel);
+        const shellR = bevel + bMargin;
+
+        // Closest point on the inner elliptical prism (0 .. innerTop)
+        const ex = px / innerRx;
+        const ez = pz / innerRz;
+        const ell = Math.sqrt(ex * ex + ez * ez);
+        let qx = px;
+        let qz = pz;
+        if (ell > 1.0) {
+          qx = px / ell;
+          qz = pz / ell;
+        }
+        const qy = py < 0.0 ? 0.0 : py > innerTop ? innerTop : py;
+
+        const dx = px - qx;
+        const dy = py - qy;
+        const dz = pz - qz;
+        const d2 = dx * dx + dy * dy + dz * dz;
+
+        if (d2 === 0) {
+          // Inside inner plate volume: push straight up onto plate surface (or out rim if closer)
+          const dTop = (board.topY + bMargin) - py;
+          const dRad = (1.0 - ell) * Math.min(innerRx, innerRz) + shellR;
+          if (dTop <= dRad) {
+            py = board.topY + bMargin;
+          } else if (ell > 1e-6) {
+            const sc = (board.rx + bMargin) / (Math.hypot(px, pz * (board.rx / board.rz)) || 1);
+            px *= sc;
+            pz *= sc;
+          } else {
+            py = board.topY + bMargin;
           }
+        } else if (d2 < shellR * shellR) {
+          const invD = shellR / Math.sqrt(d2);
+          px = qx + dx * invD;
+          py = qy + dy * invD;
+          pz = qz + dz * invD;
         }
       }
 
-      // 3. Flat table / runner ground plane collision (flattens outer cloth cleanly onto table!)
-      if (py < minGroundY) {
+      // 3. Finite Dining Table Footprint + Beveled Rim + Room Floor Collider!
+      //    Cloth over the table rests cleanly on it; cloth hanging past ANY table edge falls & drapes down under gravity!
+      if (this.tableBox) {
+        const tb = this.tableBox;
+        const mW = tb.toWorld;
+        // Local -> World
+        let wx = mW[0] * px + mW[4] * py + mW[8] * pz + mW[12];
+        let wy = mW[1] * px + mW[5] * py + mW[9] * pz + mW[13];
+        let wz = mW[2] * px + mW[6] * py + mW[10] * pz + mW[14];
+
+        const onRunnerZ = wz >= tb.runnerMinZ && wz <= tb.runnerMaxZ;
+        const surfTopY = onRunnerZ ? tb.runnerTopY : tb.topY;
+        const bevel = tb.bevelR;
+
+        // Inner core box shrunk by `bevel`, then expanded outward by `bevel + margin` -> smooth rounded walnut rim!
+        const cxMin = tb.minX + bevel;
+        const cxMax = tb.maxX - bevel;
+        const czMin = tb.minZ + bevel;
+        const czMax = tb.maxZ - bevel;
+        const cyMin = tb.botY + bevel;
+        const cyMax = surfTopY - bevel;
+        const shellR = bevel + margin;
+
+        // Closest point on inner core box
+        const qx = wx < cxMin ? cxMin : wx > cxMax ? cxMax : wx;
+        const qy = wy < cyMin ? cyMin : wy > cyMax ? cyMax : wy;
+        const qz = wz < czMin ? czMin : wz > czMax ? czMax : wz;
+
+        const dx = wx - qx;
+        const dy = wy - qy;
+        const dz = wz - qz;
+        const d2 = dx * dx + dy * dy + dz * dz;
+
+        let changed = false;
+        if (d2 === 0) {
+          // Deep inside core box: push to nearest face (top or closest side)
+          const dTop = (surfTopY + margin) - wy;
+          const dR = (tb.maxX + margin) - wx;
+          const dL = wx - (tb.minX - margin);
+          const dF = (tb.maxZ + margin) - wz;
+          const dB = wz - (tb.minZ - margin);
+          const mMin = Math.min(dTop, dR, dL, dF, dB);
+          if (mMin === dTop) wy = surfTopY + margin;
+          else if (mMin === dR) wx = tb.maxX + margin;
+          else if (mMin === dL) wx = tb.minX - margin;
+          else if (mMin === dF) wz = tb.maxZ + margin;
+          else wz = tb.minZ - margin;
+          changed = true;
+        } else if (d2 < shellR * shellR) {
+          // Within rounded beveled shell -> push cleanly outward along smooth bevel normal!
+          const invD = shellR / Math.sqrt(d2);
+          wx = qx + dx * invD;
+          wy = qy + dy * invD;
+          wz = qz + dz * invD;
+          changed = true;
+        }
+
+        // Also collide with recessed wooden apron directly below tabletop (world Y in [0.640, 0.724])
+        if (wy < tb.botY && wy > tb.apronBotY - margin) {
+          const axMin = tb.apronMinX - margin;
+          const axMax = tb.apronMaxX + margin;
+          const azMin = tb.apronMinZ - margin;
+          const azMax = tb.apronMaxZ + margin;
+          if (wx > axMin && wx < axMax && wz > azMin && wz < azMax) {
+            const dR = axMax - wx;
+            const dL = wx - axMin;
+            const dF = azMax - wz;
+            const dB = wz - azMin;
+            const mMin = Math.min(dR, dL, dF, dB);
+            if (mMin === dR) wx = axMax;
+            else if (mMin === dL) wx = axMin;
+            else if (mMin === dF) wz = azMax;
+            else wz = azMin;
+            changed = true;
+          }
+        }
+
+        // Room floor safety plane far below the table (world Y = 0)
+        if (wy < tb.floorY + margin) {
+          wy = tb.floorY + margin;
+          changed = true;
+        }
+
+        if (changed) {
+          const mL = tb.toLocal;
+          px = mL[0] * wx + mL[4] * wy + mL[8] * wz + mL[12];
+          py = mL[1] * wx + mL[5] * wy + mL[9] * wz + mL[13];
+          pz = mL[2] * wx + mL[6] * wy + mL[10] * wz + mL[14];
+        }
+      } else if (py < minGroundY) {
         py = minGroundY;
       }
 
@@ -692,6 +813,70 @@ export class PhysCloth {
       pos[i3 + 1] = py;
       pos[i3 + 2] = pz;
     }
+
+    // 2c. Edge-midpoint guard against the oval walnut plate rim so stretched triangle chords NEVER cut the plate!
+    if (board) {
+      const rxP = board.rx + margin + 0.0008;
+      const rzP = board.rz + margin + 0.0008;
+      const topP = board.topY + margin + 0.0008;
+      const W = this.W;
+      const H = this.H;
+      const liftEdge = (a, b) => {
+        if (pinned[a] && pinned[b]) return;
+        const a3 = a * 3;
+        const b3 = b * 3;
+        const mx = 0.5 * (pos[a3] + pos[b3]);
+        const my = 0.5 * (pos[a3 + 1] + pos[b3 + 1]);
+        const mz = 0.5 * (pos[a3 + 2] + pos[b3 + 2]);
+        if (my >= topP) return;
+        const e2 = (mx * mx) / (rxP * rxP) + (mz * mz) / (rzP * rzP);
+        if (e2 < 1.0) {
+          const lift = (topP - my) * 0.9;
+          if (!pinned[a]) pos[a3 + 1] += lift;
+          if (!pinned[b]) pos[b3 + 1] += lift;
+        }
+      };
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          const cur = y * W + x;
+          if (x + 1 < W) liftEdge(cur, cur + 1);
+          if (y + 1 < H) liftEdge(cur, cur + W);
+        }
+      }
+    }
+  }
+
+  /** Audit helper: count any cloth particles or edge midpoints intersecting the solid oval challah plate. */
+  countPlateIntersections() {
+    const board = this.ovalBoard;
+    if (!board) return 0;
+    const pos = this.pos;
+    const W = this.W;
+    const H = this.H;
+    const inside = (x, y, z) =>
+      y > 0.0005 &&
+      y < board.topY - 0.0002 &&
+      (x * x) / (board.rx * board.rx) + (z * z) / (board.rz * board.rz) < 0.995;
+
+    let hits = 0;
+    for (let i = 0; i < W * H; i++) {
+      const i3 = i * 3;
+      if (inside(pos[i3], pos[i3 + 1], pos[i3 + 2])) hits++;
+    }
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const cur = y * W + x;
+        if (x + 1 < W) {
+          const a3 = cur * 3, b3 = (cur + 1) * 3;
+          if (inside(0.5 * (pos[a3] + pos[b3]), 0.5 * (pos[a3 + 1] + pos[b3 + 1]), 0.5 * (pos[a3 + 2] + pos[b3 + 2]))) hits++;
+        }
+        if (y + 1 < H) {
+          const a3 = cur * 3, b3 = (cur + W) * 3;
+          if (inside(0.5 * (pos[a3] + pos[b3]), 0.5 * (pos[a3 + 1] + pos[b3 + 1]), 0.5 * (pos[a3 + 2] + pos[b3 + 2]))) hits++;
+        }
+      }
+    }
+    return hits;
   }
 
   /**
@@ -750,7 +935,27 @@ export class PhysCloth {
         }
       }
 
-      if (py < groundThresh) {
+      if (this.tableBox) {
+        const tb = this.tableBox;
+        const mW = tb.toWorld;
+        const wx = mW[0] * px + mW[4] * py + mW[8] * pz + mW[12];
+        const wy = mW[1] * px + mW[5] * py + mW[9] * pz + mW[13];
+        const wz = mW[2] * px + mW[6] * py + mW[10] * pz + mW[14];
+        const onRunnerZ = wz >= tb.runnerMinZ && wz <= tb.runnerMaxZ;
+        const surfTopY = onRunnerZ ? tb.runnerTopY : tb.topY;
+        const overTable =
+          wx >= tb.minX - margin2 &&
+          wx <= tb.maxX + margin2 &&
+          wz >= tb.minZ - margin2 &&
+          wz <= tb.maxZ + margin2;
+        if (overTable && wy <= surfTopY + margin2 && wy >= tb.botY - margin2) {
+          nx = 0;
+          ny = 1;
+          nz = 0;
+          contact = true;
+          fric = this.groundFriction;
+        }
+      } else if (py < groundThresh) {
         nx = 0;
         ny = 1;
         nz = 0;
@@ -839,7 +1044,7 @@ export class PhysCloth {
  * and physically peels back / re-drapes in real time when clicked!
  */
 export class ChallahClothCover {
-  constructor(challahRoot, material) {
+  constructor(challahRoot, material, tableBounds = null) {
     const W = 44;
     const H = 36;
     const width = 0.45;   // 45 cm embroidered linen cover over 24 cm braided loaf
@@ -859,13 +1064,24 @@ export class ChallahClothCover {
       new THREE.Vector3(0, 0, 1)
     );
     this.cloth.iterations = 28;
-    this.cloth.damping = 0.988;
-    this.cloth.friction = 0.48;
-    this.cloth.groundFriction = 0.14;
+    this.cloth.damping = 0.978;         // calm, restrained linen damping (no wild sweeping or bouncing!)
+    this.cloth.friction = 0.52;
+    this.cloth.groundFriction = 0.28;   // realistic linen-on-runner grip so cloth settles calmly in place
     this.cloth.groundY = 0.0;
     this.cloth.collisionMargin = 0.0022;
     this.cloth.selfMinDist = 0.0088;
     this.cloth.selfTriDist = 0.0042;
+
+    // Bind exact finite walnut dining-table footprint in world coordinates so overhanging cloth drapes down the side!
+    if (tableBounds) {
+      challahRoot.updateMatrixWorld(true);
+      const invMat = new THREE.Matrix4().copy(challahRoot.matrixWorld).invert();
+      this.cloth.tableBox = {
+        ...tableBounds,
+        toWorld: Float32Array.from(challahRoot.matrixWorld.elements),
+        toLocal: Float32Array.from(invMat.elements),
+      };
+    }
 
     // Exact multi-sphere collider matching the 4-strand braided challah loaf in challah.glb!
     // Loaf spans X in [-0.118, +0.118], resting on walnut board (top Y = 0.015), max height ~0.084
@@ -967,29 +1183,29 @@ export class ChallahClothCover {
 
     if (this.animMode === 'uncovering') {
       this.animTime += dt;
-      const dur = 0.95;
+      const dur = 0.78;
       const p = Math.min(1.0, this.animTime / dur);
       const ease = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
 
-      // Draw the BACK edge (y = 0) smoothly up & back-right off the loaf so the rest of the cloth
-      // glides cleanly behind it in order — like drawing a real linen cover off without folding through itself!
+      // Restrained, gentle draw-back of the back edge (just 18 cm behind the loaf) so the challah is unveiled
+      // gracefully while the cloth stays composed on the back of the table rather than flying off!
       for (let x = 0; x < W; x++) {
         const sx = this._edgeStart ? this._edgeStart[x * 3] : (x / (W - 1) - 0.5) * this.width;
         const sy = this._edgeStart ? this._edgeStart[x * 3 + 1] : 0.003;
         const sz = this._edgeStart ? this._edgeStart[x * 3 + 2] : -this.depth * 0.5;
-        const tx = (x / (W - 1) - 0.5) * this.width * 0.92 + 0.04;
-        const tz = -this.depth * 0.5 - 0.28;
+        const tx = (x / (W - 1) - 0.5) * this.width * 0.96;
+        const tz = -this.depth * 0.5 - 0.18;
         const lx = sx + (tx - sx) * ease;
         const lz = sz + (tz - sz) * ease;
-        const ly = sy + 0.085 * Math.sin(ease * Math.PI) + 0.004 * ease;
+        const ly = sy + 0.048 * Math.sin(ease * Math.PI) + 0.002 * ease;
         this.cloth.setPin(x, 0, lx, ly, lz);
       }
-      for (let s = 0; s < 3; s++) this.cloth.step(subDt, 0, 0, -0.15);
+      for (let s = 0; s < 3; s++) this.cloth.step(subDt, 0, 0, 0);
 
       if (p >= 1.0) {
         this.cloth.unpinAll();
         this.animMode = 'settling';
-        this.settleTime = 1.4;
+        this.settleTime = 1.1;
       }
       this.syncMesh();
       return;
@@ -997,29 +1213,28 @@ export class ChallahClothCover {
 
     if (this.animMode === 'covering') {
       this.animTime += dt;
-      const dur = 1.0;
+      const dur = 0.85;
       const p = Math.min(1.0, this.animTime / dur);
       const ease = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
 
-      // Lift the FRONT edge (y = H - 1) smoothly up, over the braided challah crown, and forward onto the table,
-      // drawing the cloth cleanly back into place with zero fold-over or self-crossing!
+      // Gentle, restrained lift just clearing the 8.4 cm braided challah crown, settling calmly back over the loaf!
       for (let x = 0; x < W; x++) {
         const sx = this._edgeStart ? this._edgeStart[x * 3] : (x / (W - 1) - 0.5) * this.width;
         const sy = this._edgeStart ? this._edgeStart[x * 3 + 1] : 0.004;
-        const sz = this._edgeStart ? this._edgeStart[x * 3 + 2] : -0.10;
+        const sz = this._edgeStart ? this._edgeStart[x * 3 + 2] : -0.02;
         const tx = (x / (W - 1) - 0.5) * this.width;
         const tz = this.depth * 0.48;
         const lx = sx + (tx - sx) * ease;
         const lz = sz + (tz - sz) * ease;
-        const ly = sy + (0.012 - sy) * ease + 0.135 * Math.sin(ease * Math.PI);
+        const ly = sy + (0.008 - sy) * ease + 0.102 * Math.sin(ease * Math.PI);
         this.cloth.setPin(x, H - 1, lx, ly, lz);
       }
-      for (let s = 0; s < 3; s++) this.cloth.step(subDt, 0, 0, 0.15);
+      for (let s = 0; s < 3; s++) this.cloth.step(subDt, 0, 0, 0);
 
       if (p >= 1.0) {
         this.cloth.unpinAll();
         this.animMode = 'settling';
-        this.settleTime = 2.2;
+        this.settleTime = 1.5;
       }
       this.syncMesh();
       return;
@@ -1027,8 +1242,7 @@ export class ChallahClothCover {
 
     if (this.animMode === 'settling') {
       this.settleTime -= dt;
-      const windX = Math.sin(elapsed * 0.7) * 0.02;
-      for (let s = 0; s < 3; s++) this.cloth.step(subDt, windX, 0, 0);
+      for (let s = 0; s < 3; s++) this.cloth.step(subDt, 0, 0, 0);
       this.syncMesh();
       if (this.settleTime <= 0) {
         this.cloth.prev.set(this.cloth.pos);
