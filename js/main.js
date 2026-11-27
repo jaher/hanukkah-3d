@@ -236,7 +236,9 @@ class HanukkahApp {
   revealScene() {
     this.canvas.classList.add('ready');
     this.overlay.classList.add('dismissed');
-    this.hud.classList.remove('hidden');
+    if (!this.suppressInitialHud) {
+      this.hud.classList.remove('hidden');
+    }
     this.clock.start();
     this.animate();
   }
@@ -825,7 +827,12 @@ class HanukkahApp {
       this.goToCamera(camParam, true);
     }
 
-    if (hudParam === '0' || hudParam === 'false') {
+    if (params.get('clean') === '1') {
+      this.suppressInitialHud = true;
+      this.hud.classList.add('hidden');
+      document.getElementById('btn-show-hud').classList.add('hidden');
+    } else if (hudParam === '0' || hudParam === 'false') {
+      this.suppressInitialHud = true;
       this.hud.classList.add('hidden');
       document.getElementById('btn-show-hud').classList.remove('hidden');
     }
