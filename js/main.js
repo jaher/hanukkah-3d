@@ -17,6 +17,7 @@ import { CandleFlameRig } from './flames.js';
 import { createWinterNightExterior } from './winter-window.js';
 import { HanukkahMusicPlayer } from './hanukkah-music.js';
 import { RoomSoundEffects } from './sfx.js';
+import { GeltCoinPhysics } from './coin-physics.js';
 
 // Exact world heights matching Blender exports (1 unit = 1 meter)
 const TABLE_Z = -0.35;
@@ -581,29 +582,46 @@ class HanukkahApp {
     createInteractiveDreidel(enableShadows(woodProto.clone(), 1.10), -0.58, TABLE_Y, -0.62, 2.25, Math.PI / 2);
     createInteractiveDreidel(enableShadows(blueProto.clone(), 1.15), 0.22, RUNNER_Y, -0.26, -0.48, Math.PI);
 
-    // Embossed Gold & Silver Chocolate Gelt (every single coin individually clickable to spin & clink!) + Velvet Pouch
+    // Embossed Gold & Silver Chocolate Gelt (every single coin individually clickable with accurate 3D rigid-body collision physics!) + Velvet Pouch
     const gelt = enableShadows(assets.models.gelt.scene, 1.45);
     gelt.position.set(-0.37, TABLE_Y, -0.14);
     gelt.rotation.y = 0.24;
+    this.scene.add(gelt);
+    gelt.updateMatrixWorld(true);
+
+    this.coinPhysics = new GeltCoinPhysics(gelt, {
+      tableY: TABLE_Y,
+      runnerY: RUNNER_Y,
+      onImpactSound: (intensity) => this.sfx.playCoinClink(intensity),
+    });
+    // Register nearby tabletop props so flipping coins collide accurately & never pass through ANY object!
+    this.coinPhysics.addStaticObstacle(-0.45, -0.44, 0.056, 0.20); // Heirloom Silver Dreidel stand
+    this.coinPhysics.addStaticObstacle(-0.67, -0.08, 0.082, 0.06); // Candle Box
+    this.coinPhysics.addStaticObstacle(-0.69, -0.48, 0.048, 0.10); // Left Cobalt Votive
+    this.coinPhysics.addStaticObstacle(0.0, -0.40, 0.115, 0.45);   // Sterling Silver Hanukkiah base
+    this.coinPhysics.addStaticObstacle(0.31, -0.46, 0.065, 0.20);  // Kiddush Cup & saucer
+    this.coinPhysics.addStaticObstacle(0.39, -0.09, 0.135, 0.09);  // Sufganiyot Platter
+    this.interactiveDreidels.forEach((rig) => {
+      this.coinPhysics.addDynamicObstacle(() => ({
+        worldPos: rig.pivot.position,
+        radius: 0.032,
+        height: 0.068,
+      }));
+    });
+
     gelt.traverse((obj) => {
       if (!obj.isMesh) return;
       if (obj.name.startsWith('Coin')) {
-        const coinIdx = this.geltCoins.length;
-        this.geltCoins.push({
-          mesh: obj,
-          basePos: obj.position.clone(),
-          baseRot: obj.rotation.clone(),
-          spinTimer: 0,
-          spinDur: 0.78,
-          flipDir: 1,
-        });
-        this.registerInteractive(obj, 'coin', { coinIdx });
+        const rec = this.coinPhysics.addCoin(obj);
+        if (rec) {
+          this.geltCoins.push(rec);
+          this.registerInteractive(obj, 'coin', { coinIdx: rec.index });
+        }
       } else if (obj.name.includes('GeltPouch')) {
         this.geltPouch = obj;
         this.registerInteractive(obj, 'gelt_pouch');
       }
     });
-    this.scene.add(gelt);
 
     // Sufganiyot Jelly Doughnuts on Blue-and-White Porcelain Platter (clickable to bite with oozing ruby jelly!)
     const sufganiyot = enableShadows(assets.models.sufganiyot.scene, 1.1);
@@ -1146,23 +1164,20 @@ class HanukkahApp {
   }
 
   spinGeltCoin(coinIdx, silent = false) {
-    const c = this.geltCoins[coinIdx];
-    if (!c) return;
-    c.spinTimer = c.spinDur;
-    c.flipDir = Math.random() > 0.5 ? 1 : -1;
+    if (!this.coinPhysics || !this.geltCoins[coinIdx]) return;
+    this.coinPhysics.launchCoin(coinIdx, { strength: 1.0, silent });
     if (!silent) {
-      this.sfx.playCoinClink(1.0);
-      this.showActionToast('🪙', 'Hanukkah Gelt!', 'Gold & silver chocolate coins spinning with a clink');
+      this.showActionToast('🪙', 'Hanukkah Gelt!', 'Gold & silver chocolate coins flipping and clinking across the table');
     }
   }
 
   jingleGeltPouch() {
     this.geltPouchJiggle = 0.65;
     this.sfx.playCoinBagJingle();
-    // Pop and spin 3 nearby coins playfully!
-    const pick = [0, 6, 13, 15, 18].filter((i) => i < this.geltCoins.length).slice(0, 3);
+    // Pop top stack & nearby scattered coins playfully with real collisions!
+    const pick = [5, 9, 13, 15, 18].filter((i) => i < this.geltCoins.length).slice(0, 3);
     pick.forEach((idx, k) => {
-      window.setTimeout(() => this.spinGeltCoin(idx, true), k * 70);
+      window.setTimeout(() => this.coinPhysics && this.coinPhysics.launchCoin(idx, { strength: 0.85, silent: true }), k * 75);
     });
     this.showActionToast('💰', 'Gelt Pouch!', 'Clinking chocolate coins ready for the dreidel pot');
   }
@@ -1579,31 +1594,9 @@ class HanukkahApp {
         }
       }
     }
-    // Spinning individual gelt coins (pop up, rapid coin-flip spin, double-bounce settle!)
-    for (const c of this.geltCoins) {
-      if (c.spinTimer > 0) {
-        c.spinTimer = Math.max(0, c.spinTimer - dt);
-        const p = 1.0 - c.spinTimer / c.spinDur;
-        // Parabolic arc with subtle landing bounce
-        let lift = 0;
-        if (p < 0.72) {
-          const u = p / 0.72;
-          lift = 0.055 * Math.sin(u * Math.PI);
-        } else {
-          const u = (p - 0.72) / 0.28;
-          lift = 0.011 * Math.sin(u * Math.PI);
-        }
-        c.mesh.position.set(c.basePos.x, c.basePos.y + lift, c.basePos.z);
-        c.mesh.rotation.set(
-          c.baseRot.x + c.flipDir * Math.PI * 4.0 * p,
-          c.baseRot.y + Math.PI * 6.0 * p,
-          c.baseRot.z
-        );
-        if (c.spinTimer <= 0) {
-          c.mesh.position.copy(c.basePos);
-          c.mesh.rotation.copy(c.baseRot);
-        }
-      }
+    // Accurate 3D rigid-body coin physics & collision detection (table, runner, pouch, stacks, dreidels!)
+    if (this.coinPhysics) {
+      this.coinPhysics.update(dt);
     }
     // Plump jiggle on velvet gelt pouch
     if (this.geltPouchJiggle > 0 && this.geltPouch) {

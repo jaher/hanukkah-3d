@@ -83,11 +83,8 @@ export class RoomSoundEffects {
       });
     };
 
-    const p = 0.94 + Math.random() * 0.14;
-    hit(now, p, 0.34);            // initial flip flick
-    hit(now + 0.42, p * 1.03, 0.24); // landing bounce 1
-    hit(now + 0.54, p * 0.99, 0.14); // settle clink 2
-    hit(now + 0.62, p * 1.01, 0.08); // final settle
+    const p = 0.92 + Math.random() * 0.16;
+    hit(now, p, 0.34); // crisp single metallic disc impact synchronized to real physics collision!
   }
 
   /** Rich jingle cascade when touching the velvet gelt pouch. */
