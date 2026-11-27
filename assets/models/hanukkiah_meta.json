@@ -1,0 +1,139 @@
+{
+  "convention": "Three.js right-handed Y-up coordinates relative to hanukkiah origin (base center on table).",
+  "shamash": {
+    "candleMesh": "Candle_Shamash",
+    "wickMesh": "Wick_Shamash",
+    "wickTip": [
+      0.0014,
+      0.42523,
+      0.0148
+    ],
+    "cupCenter": [
+      0.0,
+      0.33664,
+      0.014
+    ]
+  },
+  "candles": [
+    {
+      "night": 1,
+      "candleMesh": "Candle_1",
+      "wickMesh": "Wick_1",
+      "wickTip": [
+        0.1594,
+        0.3536,
+        0.0008
+      ],
+      "cupCenter": [
+        0.158,
+        0.271,
+        -0.0
+      ]
+    },
+    {
+      "night": 2,
+      "candleMesh": "Candle_2",
+      "wickMesh": "Wick_2",
+      "wickTip": [
+        0.1194,
+        0.3516,
+        0.0008
+      ],
+      "cupCenter": [
+        0.118,
+        0.271,
+        -0.0
+      ]
+    },
+    {
+      "night": 3,
+      "candleMesh": "Candle_3",
+      "wickMesh": "Wick_3",
+      "wickTip": [
+        0.0794,
+        0.3546,
+        0.0008
+      ],
+      "cupCenter": [
+        0.078,
+        0.271,
+        -0.0
+      ]
+    },
+    {
+      "night": 4,
+      "candleMesh": "Candle_4",
+      "wickMesh": "Wick_4",
+      "wickTip": [
+        0.0394,
+        0.3526,
+        0.0008
+      ],
+      "cupCenter": [
+        0.038,
+        0.271,
+        -0.0
+      ]
+    },
+    {
+      "night": 5,
+      "candleMesh": "Candle_5",
+      "wickMesh": "Wick_5",
+      "wickTip": [
+        -0.0366,
+        0.3536,
+        0.0008
+      ],
+      "cupCenter": [
+        -0.038,
+        0.271,
+        -0.0
+      ]
+    },
+    {
+      "night": 6,
+      "candleMesh": "Candle_6",
+      "wickMesh": "Wick_6",
+      "wickTip": [
+        -0.0766,
+        0.3506,
+        0.0008
+      ],
+      "cupCenter": [
+        -0.078,
+        0.271,
+        -0.0
+      ]
+    },
+    {
+      "night": 7,
+      "candleMesh": "Candle_7",
+      "wickMesh": "Wick_7",
+      "wickTip": [
+        -0.1166,
+        0.3546,
+        0.0008
+      ],
+      "cupCenter": [
+        -0.118,
+        0.271,
+        -0.0
+      ]
+    },
+    {
+      "night": 8,
+      "candleMesh": "Candle_8",
+      "wickMesh": "Wick_8",
+      "wickTip": [
+        -0.1566,
+        0.3526,
+        0.0008
+      ],
+      "cupCenter": [
+        -0.158,
+        0.271,
+        -0.0
+      ]
+    }
+  ]
+}

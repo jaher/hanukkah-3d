@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hanukkah 3D — Festival of Lights</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <canvas id="scene-canvas" aria-label="Interactive 3D Hanukkah room"></canvas>
+
+  <!-- Gated Asset Loading Overlay (blocks scene reveal until all models & lightmaps load) -->
+  <div id="loading-overlay" role="dialog" aria-modal="true" aria-labelledby="loading-title">
+    <div class="loading-card">
+      <div class="loading-emblem" aria-hidden="true">✡</div>
+      <h1 id="loading-title">Hanukkah 2026</h1>
+      <p class="loading-hebrew" lang="he" dir="rtl">חג אורים שמח</p>
+      <p id="loading-status" class="loading-status">Preparing the room &amp; silver hanukkiah…</p>
+
+      <div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progress-track">
+        <div class="progress-fill" id="progress-fill"></div>
+      </div>
+
+      <div class="loading-meta">
+        <span id="loading-detail">0 / 0 assets</span>
+        <span id="loading-pct">0%</span>
+      </div>
+
+      <div class="loading-actions">
+        <button id="btn-cancel" class="btn btn-secondary" type="button">Cancel</button>
+        <button id="btn-retry" class="btn btn-primary" type="button" hidden>Retry Load</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Interactive HUD (revealed only after full scene load) -->
+  <div id="hud" class="hud hidden">
+    <header class="hud-header">
+      <div class="title-badge">
+        <div class="title-row">
+          <span class="star-mark" aria-hidden="true">✡</span>
+          <div>
+            <h2>Festival of Lights</h2>
+            <p id="date-status" class="date-status">Hanukkah 2026 · Dec 4–12</p>
+          </div>
+        </div>
+      </div>
+
+      <nav class="camera-bar" aria-label="Camera viewpoints">
+        <button class="pill active" data-cam="overview" type="button">Room</button>
+        <button class="pill" data-cam="hanukkiah" type="button">Hanukkiah</button>
+        <button class="pill" data-cam="dreidel" type="button">Dreidel &amp; Gelt</button>
+        <button class="pill" data-cam="feast" type="button">Feast</button>
+        <button class="pill" data-cam="window" type="button">Winter Night</button>
+        <span class="divider" aria-hidden="true"></span>
+        <button id="btn-spin-dreidel" class="pill pill-accent" type="button" title="Spin the dreidel on the table">Spin Dreidel</button>
+        <button id="btn-toggle-hud" class="pill pill-icon" type="button" title="Hide UI (H)">H</button>
+      </nav>
+    </header>
+
+    <!-- Dreidel spin result toast -->
+    <div id="dreidel-toast" class="dreidel-toast hidden" role="status" aria-live="polite">
+      <span id="dreidel-letter" class="dreidel-letter" lang="he">ג</span>
+      <div>
+        <strong id="dreidel-name">Gimel</strong>
+        <span id="dreidel-meaning">Whole pot — Nes Gadol Hayah Sham</span>
+      </div>
+    </div>
+
+    <footer class="hud-footer">
+      <div class="night-panel">
+        <div class="night-header">
+          <span id="night-label" class="night-label">Shamash Lit</span>
+          <span id="tradition-hint" class="tradition-hint">Placed right → left · Lit left → right · Shamash always lit</span>
+        </div>
+        <div class="night-controls" role="group" aria-label="Hanukkah night selector">
+          <button class="night-btn" data-night="auto" type="button" title="Use live Hanukkah 2026 calendar date">Auto</button>
+          <button class="night-btn" data-night="0" type="button" title="Shamash candle only">0</button>
+          <button class="night-btn" data-night="1" type="button">1</button>
+          <button class="night-btn" data-night="2" type="button">2</button>
+          <button class="night-btn" data-night="3" type="button">3</button>
+          <button class="night-btn" data-night="4" type="button">4</button>
+          <button class="night-btn" data-night="5" type="button">5</button>
+          <button class="night-btn" data-night="6" type="button">6</button>
+          <button class="night-btn" data-night="7" type="button">7</button>
+          <button class="night-btn" data-night="8" type="button">8</button>
+        </div>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Floating restore button when HUD is hidden -->
+  <button id="btn-show-hud" class="restore-hud hidden" type="button" title="Show controls (H)">Show Controls</button>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
