@@ -164,31 +164,33 @@ def generate_wood_textures():
 
 
 def generate_textile_textures():
-    """Generate blue/white/silver woven rug, embroidered table runner, and embroidered challah cover."""
-    # 1. Blue, Ivory & Silver Woven Area Rug (1024x1024)
-    w, h = 1024, 1024
+    """Generate aspect-ratio-matched blue/white/silver woven rug, embroidered table runner, and challah cover."""
+    # 1. Blue, Ivory & Silver Woven Area Rug (1408x1024 -> exact 1.375:1 ratio matching 3.10m x 2.25m rug!)
+    w, h = 1408, 1024
     img = Image.new("RGB", (w, h), (22, 42, 86))
     draw = ImageDraw.Draw(img)
 
-    # Borders
-    draw.rectangle([24, 24, w - 24, h - 24], outline=(232, 236, 244), width=18)
-    draw.rectangle([56, 56, w - 56, h - 56], outline=(168, 182, 206), width=8)
-    draw.rectangle([80, 80, w - 80, h - 80], fill=(238, 240, 245), outline=(34, 62, 122), width=10)
-    draw.rectangle([126, 126, w - 126, h - 126], fill=(26, 50, 98), outline=(185, 198, 220), width=6)
+    # Borders (uniform pixel margin so border thickness is identical on all 4 sides!)
+    draw.rectangle([26, 26, w - 26, h - 26], outline=(232, 236, 244), width=18)
+    draw.rectangle([58, 58, w - 58, h - 58], outline=(168, 182, 206), width=8)
+    draw.rectangle([82, 82, w - 82, h - 82], fill=(238, 240, 245), outline=(34, 62, 122), width=10)
+    draw.rectangle([128, 128, w - 128, h - 128], fill=(26, 50, 98), outline=(185, 198, 220), width=6)
 
-    # Geometric diamond / filigree border motifs
-    for k in range(10):
-        pos = 104 + k * 90
-        for cx, cy in [(pos, 103), (pos, h - 103), (103, pos), (w - 103, pos)]:
+    # Geometric diamond border motifs evenly spaced along horizontal & vertical edges
+    for cx in range(160, w - 140, 92):
+        for cy in (105, h - 105):
+            draw.polygon([(cx, cy - 12), (cx + 12, cy), (cx, cy + 12), (cx - 12, cy)], fill=(36, 68, 134))
+    for cy in range(160, h - 140, 92):
+        for cx in (105, w - 105):
             draw.polygon([(cx, cy - 12), (cx + 12, cy), (cx, cy + 12), (cx - 12, cy)], fill=(36, 68, 134))
 
-    # Central medallion & corner medallions with subtle Star of David geometry
-    draw_star_of_david(draw, w // 2, h // 2, 195, outline=(228, 234, 244), width=10, fill=(38, 70, 136))
-    draw_star_of_david(draw, w // 2, h // 2, 130, outline=(176, 192, 218), width=6, fill=(24, 46, 92))
-    draw_star_of_david(draw, w // 2, h // 2, 62, outline=(240, 242, 246), width=5)
+    # Central medallion & corner medallions with true 1:1 undistorted Stars of David!
+    draw_star_of_david(draw, w // 2, h // 2, 210, outline=(228, 234, 244), width=10, fill=(38, 70, 136))
+    draw_star_of_david(draw, w // 2, h // 2, 138, outline=(176, 192, 218), width=6, fill=(24, 46, 92))
+    draw_star_of_david(draw, w // 2, h // 2, 66, outline=(240, 242, 246), width=5)
 
-    for cx, cy in [(250, 250), (w - 250, 250), (250, h - 250), (w - 250, h - 250)]:
-        draw_star_of_david(draw, cx, cy, 56, outline=(196, 208, 228), width=5, fill=(34, 64, 124))
+    for cx, cy in [(265, 255), (w - 265, 255), (265, h - 255), (w - 265, h - 255)]:
+        draw_star_of_david(draw, cx, cy, 62, outline=(196, 208, 228), width=5, fill=(34, 64, 124))
 
     # Add fine woven cloth grain
     arr = np.array(img, dtype=np.float32)
@@ -197,32 +199,33 @@ def generate_textile_textures():
     arr = np.clip(arr * weave[:, :, None], 0, 255).astype(np.uint8)
     save_img(Image.fromarray(arr), "rug_albedo.jpg", quality=90)
 
-    # 2. Embroidered Blue/White/Silver Table Runner (1024x512)
-    rw, rh = 1024, 512
-    runner = Image.new("RGB", (rw, rh), (240, 242, 247))
+    # 2. Embroidered Blue/White/Silver Table Runner (2048x372 -> exact 5.505:1 ratio matching 2.04m x 0.37m runner!)
+    rw, rh = 2048, 372
+    runner = Image.new("RGB", (rw, rh), (241, 243, 248))
     dr = ImageDraw.Draw(runner)
     # Royal blue side stripes & silver thread trim
-    dr.rectangle([0, 0, rw, 44], fill=(22, 48, 108))
-    dr.rectangle([0, rh - 44, rw, rh], fill=(22, 48, 108))
-    dr.rectangle([0, 48, rw, 60], fill=(182, 194, 214))
-    dr.rectangle([0, rh - 60, rw, rh - 48], fill=(182, 194, 214))
-    dr.rectangle([0, 68, rw, 74], fill=(38, 72, 148))
-    dr.rectangle([0, rh - 74, rw, rh - 68], fill=(38, 72, 148))
+    dr.rectangle([0, 0, rw, 34], fill=(22, 48, 108))
+    dr.rectangle([0, rh - 34, rw, rh], fill=(22, 48, 108))
+    dr.rectangle([0, 38, rw, 48], fill=(176, 190, 214))
+    dr.rectangle([0, rh - 48, rw, rh - 38], fill=(176, 190, 214))
+    dr.rectangle([0, 54, rw, 59], fill=(38, 72, 148))
+    dr.rectangle([0, rh - 59, rw, rh - 54], fill=(38, 72, 148))
 
-    # Subtle repeating silver Star of David damask down the runner center
-    for i in range(6):
-        cx = 90 + i * 168
-        draw_star_of_david(dr, cx, rh // 2, 54, outline=(172, 186, 212), width=5)
+    # Perfectly proportioned 1:1 repeating silver & cobalt Star of David damask down the runner!
+    step_x = 186
+    for cx in range(110, rw - 60, step_x):
+        draw_star_of_david(dr, cx, rh // 2, 54, outline=(156, 174, 206), width=5)
         draw_star_of_david(dr, cx, rh // 2, 28, outline=(46, 82, 158), width=3)
-        # Small corner stars
-        draw_star_of_david(dr, cx + 84, 130, 18, outline=(182, 194, 216), width=2)
-        draw_star_of_david(dr, cx + 84, rh - 130, 18, outline=(182, 194, 216), width=2)
+        if cx + step_x // 2 < rw - 60:
+            mx = cx + step_x // 2
+            draw_star_of_david(dr, mx, 102, 20, outline=(168, 184, 212), width=3)
+            draw_star_of_david(dr, mx, rh - 102, 20, outline=(168, 184, 212), width=3)
 
     rarr = np.array(runner, dtype=np.float32)
     yy, xx = np.mgrid[0:rh, 0:rw]
-    linen = 1.0 + 0.045 * np.sin(xx * 2.1) + 0.045 * np.sin(yy * 2.1)
+    linen = 1.0 + 0.042 * np.sin(xx * 2.1) + 0.042 * np.sin(yy * 2.1)
     rarr = np.clip(rarr * linen[:, :, None], 0, 255).astype(np.uint8)
-    save_img(Image.fromarray(rarr), "runner_albedo.jpg", quality=90)
+    save_img(Image.fromarray(rarr), "runner_albedo.jpg", quality=92)
 
     # 3. Embroidered White, Royal Blue & Silver Challah Cover (1024x1024)
     cw, ch = 1024, 1024
