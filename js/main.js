@@ -18,6 +18,7 @@ import { createWinterNightExterior } from './winter-window.js';
 import { HanukkahMusicPlayer } from './hanukkah-music.js';
 import { RoomSoundEffects } from './sfx.js';
 import { GeltCoinPhysics } from './coin-physics.js';
+import { ChallahClothCover } from './phys-cloth.js';
 
 // Exact world heights matching Blender exports (1 unit = 1 meter)
 const TABLE_Z = -0.35;
@@ -691,37 +692,43 @@ class HanukkahApp {
     this.registerInteractive(kiddush, 'kiddush');
     this.scene.add(kiddush);
 
-    // Braided Challah on Carved Walnut Board with Real Cloth-Simulated Liftable Embroidered Challah Cover!
-    // Seated cleanly centered on the flat embroidered runner plane so all 4 draped corners lie flush on the surface!
+    // Braided Challah on Carved Walnut Board with LIVE `phys::Cloth` (jaher/physics-engine) Embroidered Cover!
+    // Seated cleanly centered on the flat embroidered runner plane so all 4 draped corners lie completely flat!
     const challah = enableShadows(assets.models.challah.scene, 1.05);
     challah.position.set(0.62, RUNNER_Y, -0.37);
     challah.rotation.y = -0.14;
-    this.challahCover = challah.getObjectByName('Challah_Cover_Group');
-    if (this.challahCover) {
-      this.challahCoverBasePos = this.challahCover.position.clone();
-      this.challahCover.traverse((obj) => {
+    const bakedCover = challah.getObjectByName('Challah_Cover_Group');
+    let coverTexMap = null;
+    let coverNormalMap = null;
+    if (bakedCover) {
+      bakedCover.traverse((obj) => {
         if (!obj.isMesh || !obj.material) return;
         const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-        const upgraded = mats.map((m) => {
+        for (const m of mats) {
           if (m && m.name && m.name.includes('EmbroideredChallahCover')) {
-            return new THREE.MeshPhysicalMaterial({
-              name: m.name,
-              color: m.color ? m.color.clone() : new THREE.Color(0xffffff),
-              map: m.map || null,
-              normalMap: m.normalMap || null,
-              normalScale: new THREE.Vector2(0.85, 0.85),
-              roughness: 0.82,
-              metalness: 0.02,
-              sheen: 0.55,
-              sheenRoughness: 0.68,
-              sheenColor: new THREE.Color(0xf6f0e4),
-            });
+            if (m.map) coverTexMap = m.map;
+            if (m.normalMap) coverNormalMap = m.normalMap;
           }
-          return m;
-        });
-        obj.material = Array.isArray(obj.material) ? upgraded : upgraded[0];
+        }
       });
+      // Replace static baked cover with live Verlet/PBD PhysCloth simulation from jaher/physics-engine!
+      bakedCover.visible = false;
+      if (bakedCover.parent) bakedCover.parent.remove(bakedCover);
     }
+    const liveCoverMat = new THREE.MeshPhysicalMaterial({
+      name: 'EmbroideredChallahCover_LiveCloth',
+      color: new THREE.Color(0xffffff),
+      map: coverTexMap,
+      normalMap: coverNormalMap,
+      normalScale: new THREE.Vector2(0.85, 0.85),
+      roughness: 0.82,
+      metalness: 0.02,
+      sheen: 0.55,
+      sheenRoughness: 0.68,
+      sheenColor: new THREE.Color(0xf6f0e4),
+      side: THREE.DoubleSide,
+    });
+    this.challahCloth = new ChallahClothCover(challah, liveCoverMat);
     this.registerInteractive(challah, 'challah');
     this.scene.add(challah);
 
@@ -1013,7 +1020,11 @@ class HanukkahApp {
   }
 
   triggerDreidelSpin(targetRig = null) {
-    const rig = targetRig || this.primaryDreidel;
+    // If triggered via HUD button / Spacebar, pick the first idle dreidel so repeated presses spin multiple at once!
+    const rig =
+      targetRig ||
+      this.interactiveDreidels.find((r) => !r.spin || !r.spin.active) ||
+      this.primaryDreidel;
     if (!rig) return;
     this.sfx.playWoodSpin();
     const outcome = DREIDEL_OUTCOMES[Math.floor(Math.random() * DREIDEL_OUTCOMES.length)];
@@ -1022,13 +1033,14 @@ class HanukkahApp {
     const baseRev = Math.ceil(currentSpin / (Math.PI * 2)) * (Math.PI * 2);
     const targetSpin = baseRev + fullSpins * Math.PI * 2 + outcome.spinAngle;
 
-    const fallDir = (Math.random() * 1.4 - 0.7);
-    this.dreidelSpin = {
+    const fallDir = Math.random() * 1.4 - 0.7;
+    const wasAlreadyUpright = Boolean(rig.spin && rig.spin.active && !rig.fallen);
+    rig.fallen = false;
+    rig.spin = {
       active: true,
-      rig,
       time: 0,
-      duration: 3.3,
-      wasFallen: rig.fallen,
+      duration: 3.1 + Math.random() * 0.55,
+      wasFallen: !wasAlreadyUpright,
       startTilt: rig.pivot.rotation.x,
       startPrecession: rig.pivot.rotation.y,
       endPrecession: fallDir + Math.PI * 2 * 3,
@@ -1037,8 +1049,12 @@ class HanukkahApp {
       outcome,
     };
 
-    const toast = document.getElementById('dreidel-toast');
-    toast.classList.add('hidden');
+    // Only dismiss toast if no other dreidel is currently finishing
+    const activeCount = this.interactiveDreidels.filter((r) => r.spin && r.spin.active).length;
+    if (activeCount <= 1) {
+      const toast = document.getElementById('dreidel-toast');
+      toast.classList.add('hidden');
+    }
   }
 
   clearDripsForSuf(item) {
@@ -1209,13 +1225,16 @@ class HanukkahApp {
 
   toggleChallahCover() {
     this.challahUncovered = !this.challahUncovered;
+    if (this.challahCloth) {
+      this.challahCloth.setUncovered(this.challahUncovered);
+    }
     this.sfx.playClothRustle();
     this.showActionToast(
       '🍞',
       this.challahUncovered ? 'Challah Uncovered' : 'Challah Covered',
       this.challahUncovered
-        ? 'Hamotzi Lechem Min Ha\'aretz — braided golden challah revealed'
-        : 'Embroidered white & cobalt challah cover draped gracefully back'
+        ? 'Hamotzi Lechem Min Ha\'aretz — cloth peels back to reveal the braided golden challah'
+        : 'Embroidered challah cover drapes naturally back over the loaf'
     );
   }
 
@@ -1535,13 +1554,15 @@ class HanukkahApp {
       }
     }
 
-    // 3. Realistic Gyroscopic Dreidel Physics: Stand Upright -> Fast Spin -> Precession Wobble -> Sideways Topple!
-    if (this.dreidelSpin.active && this.dreidelSpin.rig) {
-      const st = this.dreidelSpin;
-      const { pivot, spinNode, baseX, baseY, baseZ } = st.rig;
+    // 3. Independent Gyroscopic Dreidel Physics for EVERY dreidel simultaneously:
+    //    Stand Upright -> Fast Spin -> Precession Wobble -> Sideways Topple!
+    const flatTilt = Math.PI / 2 - 0.13; // flush side-lying contact angle on table
+    for (const rig of this.interactiveDreidels) {
+      const st = rig.spin;
+      if (!st || !st.active) continue;
+      const { pivot, spinNode, baseX, baseY, baseZ } = rig;
       st.time += dt;
       const p = Math.min(1.0, st.time / st.duration);
-      const flatTilt = Math.PI / 2 - 0.13; // flush side-lying contact angle on table
 
       // Axial spin decelerates smoothly to stop right as it topples (p ~ 0.90)
       const spinP = Math.min(1.0, p / 0.90);
@@ -1594,7 +1615,7 @@ class HanukkahApp {
 
       if (p >= 1.0) {
         st.active = false;
-        st.rig.fallen = true;
+        rig.fallen = true;
         pivot.rotation.x = flatTilt;
         pivot.rotation.z = 0.0;
         pivot.position.y = baseY + 0.0155;
@@ -1646,19 +1667,9 @@ class HanukkahApp {
       const ease = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
       this.dreidelLarge.rotation.y = 0.42 + ease * Math.PI * 2.0;
     }
-    // Smoothly lift/fold embroidered challah cover neatly back-right away from the Kiddush cup!
-    if (this.challahCover && this.challahCoverBasePos) {
-      const targetL = this.challahUncovered ? 1.0 : 0.0;
-      this.challahCoverLerp += (targetL - this.challahCoverLerp) * Math.min(1.0, dt * 6.0);
-      const l = this.challahCoverLerp;
-      this.challahCover.position.set(
-        this.challahCoverBasePos.x + 0.06 * l,
-        this.challahCoverBasePos.y + 0.05 * Math.sin(l * Math.PI) + 0.012 * l,
-        this.challahCoverBasePos.z - 0.13 * l
-      );
-      this.challahCover.rotation.x = -0.32 * l;
-      this.challahCover.rotation.z = -0.10 * l;
-      this.challahCover.scale.set(1.0 - 0.22 * l, 1.0 - 0.14 * l, 1.0 - 0.34 * l);
+    // Live real-time PhysCloth (jaher/physics-engine) challah cover draping & uncover/re-drape physics!
+    if (this.challahCloth) {
+      this.challahCloth.update(dt, elapsed);
     }
     // Star of David wall medallion celebratory shimmer spin
     if (this.starWallSpin > 0 && this.starWallR) {
