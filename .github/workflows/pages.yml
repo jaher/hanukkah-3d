@@ -38,7 +38,7 @@ jobs:
           ARTIFACT_ID=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts" --jq '[.artifacts[] | select(.name=="github-pages")] | sort_by(.created_at) | last | .id')
           echo "artifact id: ${ARTIFACT_ID}"
           test -n "${ARTIFACT_ID}" && test "${ARTIFACT_ID}" != "null"
-          ID_TOKEN=$(curl -s -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=https://github.com/${GITHUB_REPOSITORY}" | jq -r .value)
+          ID_TOKEN=$(curl -s -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}" | jq -r .value)
           test -n "${ID_TOKEN}" && test "${ID_TOKEN}" != "null"
           DEPLOY_JSON=$(curl -s -X POST \
             -H "Authorization: Bearer ${GH_TOKEN}" \
@@ -46,7 +46,7 @@ jobs:
             "https://api.github.com/repos/${GITHUB_REPOSITORY}/pages/deployments" \
             -d "{\"artifact_id\": ${ARTIFACT_ID}, \"pages_build_version\": \"${GITHUB_SHA}\", \"oidc_token\": \"${ID_TOKEN}\"}")
           echo "${DEPLOY_JSON}"
-          DEPLOY_ID=$(echo "${DEPLOY_JSON}" | jq -r '.id // (.status_url | split("/") | last)')
+          DEPLOY_ID=$(echo "${DEPLOY_JSON}" | jq -r '.id // ((.status_url // "") | split("/") | last)')
           test -n "${DEPLOY_ID}" && test "${DEPLOY_ID}" != "null"
           for i in $(seq 1 30); do
             STATUS_JSON=$(curl -s -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${GITHUB_REPOSITORY}/pages/deployments/${DEPLOY_ID}")
