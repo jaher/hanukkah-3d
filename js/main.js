@@ -11,17 +11,17 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { GatedAssetLoader } from './asset-loader.js?v=20261127-5';
-import { computeHanukkahNight, HANUKKAH_2026_NIGHT_DATES, isShabbatForSelection } from './hanukkah-calendar.js?v=20261127-5';
-import { CandleFlameRig } from './flames.js?v=20261127-5';
-import { createWinterNightExterior } from './winter-window.js?v=20261127-5';
-import { HanukkahMusicPlayer } from './hanukkah-music.js?v=20261127-5';
-import { RoomSoundEffects } from './sfx.js?v=20261127-5';
-import { GeltCoinPhysics } from './coin-physics.js?v=20261127-5';
-import { ChallahClothCover } from './phys-cloth.js?v=20261127-5';
-import { VelvetCurtainPanel } from './curtain-cloth.js?v=20261127-5';
+import { GatedAssetLoader } from './asset-loader.js?v=20261127-6';
+import { computeHanukkahNight, HANUKKAH_2026_NIGHT_DATES, isShabbatForSelection } from './hanukkah-calendar.js?v=20261127-6';
+import { CandleFlameRig } from './flames.js?v=20261127-6';
+import { createWinterNightExterior } from './winter-window.js?v=20261127-6';
+import { HanukkahMusicPlayer } from './hanukkah-music.js?v=20261127-6';
+import { RoomSoundEffects } from './sfx.js?v=20261127-6';
+import { GeltCoinPhysics } from './coin-physics.js?v=20261127-6';
+import { ChallahClothCover } from './phys-cloth.js?v=20261127-6';
+import { VelvetCurtainPanel } from './curtain-cloth.js?v=20261127-6';
 
-const ASSET_VERSION = '20261127-5';
+const ASSET_VERSION = '20261127-6';
 const vUrl = (path) => `${path}?v=${ASSET_VERSION}`;
 
 // Exact world heights matching Blender exports (1 unit = 1 meter)
@@ -54,8 +54,8 @@ const ASSET_MANIFEST = [
 
 const CAMERA_PRESETS = {
   overview: {
-    pos: new THREE.Vector3(0.06, 1.38, 1.22),
-    target: new THREE.Vector3(0.0, 0.97, -0.44),
+    pos: new THREE.Vector3(0.04, 1.40, 1.38),
+    target: new THREE.Vector3(0.0, 1.04, -0.44),
   },
   hanukkiah: {
     pos: new THREE.Vector3(0.05, 1.11, 0.48),
@@ -227,7 +227,11 @@ class HanukkahApp {
     this.windowStarSpinVel = 0;
     this.curtains = [];
     this.curtainPanels = [];
-    this.lampsDimmed = false;
+    this.roomLightsOff = false;
+    this.lightsOffBlend = 0.0; // 0 = room electric lights on, 1 = pure candlelight mode
+    this.roomLightmapMats = [];
+    this.tableLightmapMats = [];
+    this.lampShadeMaterials = [];
     this.rebbeSpeechActive = false;
     this.candleBoxAnim = 0;
     this.candleBoxRoot = null;
@@ -257,6 +261,7 @@ class HanukkahApp {
       toggleRebbeSpeech: () => this.toggleRebbeSpeech(),
       stopRebbeSpeech: () => this.stopRebbeSpeech(true),
       toggleCurtain: (idx = 0) => (this.curtainPanels[idx] ? this.curtainPanels[idx].toggle() : null),
+      toggleRoomLamps: () => this.toggleRoomLamps(),
       toggleMusic: () => this.musicPlayer.toggle(),
       nextTrack: () => this.musicPlayer.nextTrack(),
       getState: () => ({
@@ -268,6 +273,8 @@ class HanukkahApp {
         musicTrack: this.musicPlayer.currentTrack.title,
         rebbeSpeaking: Boolean(this.rebbeSpeechActive || this.sfx.isRebbeSpeaking()),
         curtainsClosed: this.curtainPanels.map((p) => p.isClosed),
+        roomLightsOff: this.roomLightsOff,
+        isShabbat: isShabbatForSelection(this.activeNight, this.mode, new Date()),
         wineLevel: this.wineLevel,
         sufganiyotStates: this.sufganiyotItems.map((s) => s.state),
         latkesRemaining: this.latkeItems.filter((l) => !l.eaten).length,
@@ -442,12 +449,16 @@ class HanukkahApp {
         obj.castShadow = false;
         obj.receiveShadow = false;
         this.registerInteractive(obj, 'window_glass');
-      } else if (obj.name.includes('Room_Architecture')) {
+      } else if (
+        obj.name.includes('Room_Architecture') ||
+        (obj.parent && obj.parent.name && obj.parent.name.includes('Room_Architecture'))
+      ) {
         const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
         for (const m of mats) {
           m.lightMap = assets.textures.room_lightmap;
           m.lightMapIntensity = 0.45;
           m.needsUpdate = true;
+          this.roomLightmapMats.push(m);
         }
       } else if (
         obj.name.includes('Curtain_Left') ||
@@ -481,11 +492,44 @@ class HanukkahApp {
           }
         }
         bakedCurtainNodes.push(obj);
-      } else if (obj.name.includes('LightingFixtures')) {
+      } else if (
+        obj.name.includes('LightingFixtures') ||
+        (obj.parent && obj.parent.name && obj.parent.name.includes('LightingFixtures'))
+      ) {
         obj.castShadow = true;
+        const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+        for (const m of mats) {
+          if (m && m.name && m.name.includes('WarmLinenShade')) {
+            // Ensure warm glowing linen shade when lights are ON and unlit cool linen when lights are OFF!
+            if (!m.emissive || m.emissive.getHex() === 0) {
+              m.emissive = new THREE.Color(0xffca82);
+              m.emissiveIntensity = 0.75;
+            }
+            this.lampShadeMaterials.push({
+              mat: m,
+              onColor: m.color ? m.color.clone() : new THREE.Color(0xf6ecdc),
+              offColor: new THREE.Color(0x52504c),
+              onEmissiveIntensity: m.emissiveIntensity || 0.75,
+            });
+          }
+        }
         this.registerInteractive(obj, 'lamps');
       }
     });
+    // Add generous invisible hit targets around both wall sconces & sideboard lamp so touching lights is effortless!
+    const lampHitGeo = new THREE.SphereGeometry(0.17, 10, 8);
+    const lampHitMat = new THREE.MeshBasicMaterial({ visible: false });
+    for (const [lx, ly, lz] of [
+      [-1.71, 1.91, -2.06],
+      [1.71, 1.91, -2.06],
+      [2.48, 1.18, -0.88],
+    ]) {
+      const hitMesh = new THREE.Mesh(lampHitGeo, lampHitMat);
+      hitMesh.position.set(lx, ly, lz);
+      hitMesh.name = `LampHitTarget_${lx.toFixed(2)}`;
+      this.scene.add(hitMesh);
+      this.registerInteractive(hitMesh, 'lamps');
+    }
     // Hide static baked curtains while keeping the brushed-silver CurtainRod and finials intact!
     for (const oldNode of bakedCurtainNodes) {
       oldNode.visible = false;
@@ -535,12 +579,16 @@ class HanukkahApp {
       if (!obj.isMesh) return;
       obj.castShadow = true;
       obj.receiveShadow = true;
-      if (obj.name.includes('DiningTable_Wood')) {
+      if (
+        obj.name.includes('DiningTable_Wood') ||
+        (obj.parent && obj.parent.name && obj.parent.name.includes('DiningTable_Wood'))
+      ) {
         const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
         for (const m of mats) {
           m.lightMap = assets.textures.table_lightmap;
           m.lightMapIntensity = 0.30;
           m.needsUpdate = true;
+          this.tableLightmapMats.push(m);
         }
       }
     });
@@ -1030,10 +1078,18 @@ class HanukkahApp {
     this.scene.add(moonLight);
     this.scene.add(moonLight.target);
 
+    // Warm tabletop bounce fill (active only in candlelight-only mode to simulate warm runner/wood bounce!)
+    const candleBounceLight = new THREE.PointLight(0xff7d1e, 0.0, 4.5, 1.6);
+    candleBounceLight.position.set(0.0, RUNNER_Y + 0.17, -0.16);
+    this.scene.add(candleBounceLight);
+
     this.lights = {
+      hemi,
       shamashLight,
       menorahLight,
+      candleBounceLight,
       silverAccent,
+      silverRimFill,
       votiveL,
       votiveR,
       sconceL,
@@ -1089,10 +1145,14 @@ class HanukkahApp {
       }
     }
 
-    // Challah & cover appear ONLY on Shabbat (computed dynamically from the selected calendar Date!)
+    // Challah & cover appear ONLY on Shabbat; electric lights MUST stay ON on Shabbat!
+    const isShabbat = isShabbatForSelection(n, this.mode, new Date());
     if (this.challahRoot) {
-      const showChallah = isShabbatForSelection(n, this.mode, new Date());
-      this.challahRoot.visible = showChallah;
+      this.challahRoot.visible = isShabbat;
+    }
+    if (isShabbat && this.roomLightsOff) {
+      this.roomLightsOff = false;
+      if (instant) this.lightsOffBlend = 0.0;
     }
 
     this.updateNightHUD();
@@ -1459,17 +1519,26 @@ class HanukkahApp {
   }
 
   toggleRoomLamps() {
-    this.lampsDimmed = !this.lampsDimmed;
+    // On Shabbat (computed dynamically from the selected date), electric lights cannot be switched off!
+    if (isShabbatForSelection(this.activeNight, this.mode, new Date())) {
+      this.roomLightsOff = false;
+      this.showActionToast(
+        '✡',
+        'Shabbat — Lights Stay On',
+        'On Shabbat, electric lights cannot be switched on or off'
+      );
+      return false;
+    }
+    this.roomLightsOff = !this.roomLightsOff;
     this.sfx.playSwitchClick();
-    const mult = this.lampsDimmed ? 0.25 : 1.0;
-    if (this.lights.sconceL) this.lights.sconceL.intensity = 0.72 * mult;
-    if (this.lights.sconceR) this.lights.sconceR.intensity = 0.72 * mult;
-    if (this.lights.sideboardLamp) this.lights.sideboardLamp.intensity = 0.65 * mult;
     this.showActionToast(
-      '🕯️',
-      this.lampsDimmed ? 'Intimate Candlelight Mood' : 'Warm Evening Sconces On',
-      this.lampsDimmed ? 'Room sconces dimmed to spotlight the glowing Hanukkiah' : 'Wall sconces and sideboard lamp illuminated'
+      '✡',
+      this.roomLightsOff ? 'Room Lights Off — Candlelight Only' : 'Room Lights On',
+      this.roomLightsOff
+        ? 'The room is now illuminated solely by the warm glow and dancing shadows of the Hanukkiah candles'
+        : 'Wall sconces and sideboard lamp turned back on'
     );
+    return this.roomLightsOff;
   }
 
   handleInteractiveClick(info) {
@@ -1791,6 +1860,8 @@ class HanukkahApp {
         toggleHud();
       } else if (e.key === 'm' || e.key === 'M') {
         this.musicPlayer.toggle();
+      } else if (e.key === 'l' || e.key === 'L') {
+        this.toggleRoomLamps();
       } else if (e.key === 'Escape' && (this.rebbeSpeechActive || this.sfx.isRebbeSpeaking())) {
         this.stopRebbeSpeech(true);
       } else if (e.key === ' ') {
@@ -1850,21 +1921,82 @@ class HanukkahApp {
     const dt = Math.min(this.clock.getDelta(), 0.05);
     const elapsed = this.clock.getElapsedTime();
 
-    // 1. Update procedural flames & dynamic flickering warm candlelight
+    // 1. Smoothly transition room lights ON <-> Candlelight-Only mode & update flickering firelight!
+    const targetLightsOff = this.roomLightsOff ? 1.0 : 0.0;
+    this.lightsOffBlend += (targetLightsOff - this.lightsOffBlend) * Math.min(1.0, dt * 4.2);
+    if (Math.abs(targetLightsOff - this.lightsOffBlend) < 0.002) {
+      this.lightsOffBlend = targetLightsOff;
+    }
+    const off = this.lightsOffBlend * this.lightsOffBlend * (3.0 - 2.0 * this.lightsOffBlend);
+    const on = 1.0 - off;
+
+    this.flameRig.setDarkRoomBoost(off);
     const { shamashFlicker, totalLitEnergy } = this.flameRig.update(elapsed, dt);
 
-    // Shamash light is ALWAYS active and gently flickering
-    this.lights.shamashLight.intensity = 1.32 * shamashFlicker;
-    this.lights.shamashLight.position.x = 0.004 * Math.sin(elapsed * 5.2);
+    // Compute live X center-of-mass of currently lit Hanukkiah candles so shadows shift accurately by night!
+    let litSumX = 0.0;
+    let litWeight = 0.0;
+    for (let i = 0; i < this.candleFlames.length; i++) {
+      const f = this.candleFlames[i];
+      if (f && f.currentLit > 0.02) {
+        litSumX += f.group.position.x * f.currentLit;
+        litWeight += f.currentLit;
+      }
+    }
+    const litCenterX = litWeight > 0.01 ? litSumX / litWeight : 0.0;
 
-    // Collective 8-branch light grows warmly from Night 1 through Night 8!
-    const collectiveBase = totalLitEnergy > 0.01 ? 0.38 + totalLitEnergy * 0.24 : 0.0;
-    this.lights.menorahLight.intensity = collectiveBase;
-    this.lights.silverAccent.intensity = 0.48 + totalLitEnergy * 0.055;
+    // Electric fixtures & lamp shades switch completely OFF in candlelight-only mode!
+    if (this.lights.sconceL) this.lights.sconceL.intensity = 0.72 * on;
+    if (this.lights.sconceR) this.lights.sconceR.intensity = 0.72 * on;
+    if (this.lights.sideboardLamp) this.lights.sideboardLamp.intensity = 0.65 * on;
+    if (this.lights.hemi) this.lights.hemi.intensity = 0.24 * on + 0.032 * off;
+    if (this.lights.silverRimFill) this.lights.silverRimFill.intensity = 0.42 * on;
+    this.scene.environmentIntensity = 1.0 * on + 0.16 * off;
+
+    for (const m of this.roomLightmapMats) {
+      m.lightMapIntensity = 0.45 * on + 0.022 * off;
+    }
+    for (const m of this.tableLightmapMats) {
+      m.lightMapIntensity = 0.30 * on + 0.020 * off;
+    }
+    for (const entry of this.lampShadeMaterials) {
+      entry.mat.emissiveIntensity = entry.onEmissiveIntensity * on;
+      entry.mat.color.lerpColors(entry.onColor, entry.offColor, off);
+    }
+
+    // Shamash shadow-casting firelight: ALWAYS lit; blooms into rich atmospheric golden room light when lamps are off!
+    const shamashJitterX = (0.004 + 0.004 * off) * Math.sin(elapsed * 5.2);
+    const shamashJitterZ = 0.003 * off * Math.cos(elapsed * 4.3);
+    this.lights.shamashLight.position.set(shamashJitterX, RUNNER_Y + 0.455, -0.38 + shamashJitterZ);
+    this.lights.shamashLight.distance = 5.2 + 4.8 * off;
+    this.lights.shamashLight.decay = 1.72 - 0.34 * off;
+    this.lights.shamashLight.color.setHex(0xffa442).lerp(new THREE.Color(0xff8c24), off);
+    this.lights.shamashLight.intensity = (1.32 * on + 3.25 * off) * shamashFlicker;
+
+    // Collective 8-branch shadow-casting firelight: shifts to lit candle centroid & grows warmly Night 1 -> Night 8!
+    const candleDanceX = 0.005 * off * Math.sin(elapsed * 6.7 + 1.1);
+    const candleDanceZ = 0.004 * off * Math.cos(elapsed * 5.4 + 0.4);
+    this.lights.menorahLight.position.set(litCenterX + candleDanceX, RUNNER_Y + 0.395, -0.35 + candleDanceZ);
+    this.lights.menorahLight.distance = 5.8 + 5.2 * off;
+    this.lights.menorahLight.decay = 1.58 - 0.24 * off;
+    this.lights.menorahLight.color.setHex(0xff9630).lerp(new THREE.Color(0xff7f1a), off);
+    const collectiveOn = totalLitEnergy > 0.01 ? 0.38 + totalLitEnergy * 0.24 : 0.0;
+    const collectiveCandlelit = totalLitEnergy > 0.01 ? 0.95 + totalLitEnergy * 0.62 : 0.0;
+    this.lights.menorahLight.intensity = collectiveOn * on + collectiveCandlelit * off;
+
+    // Warm tabletop diffuse firelight bounce active only in candlelight-only mode
+    if (this.lights.candleBounceLight) {
+      this.lights.candleBounceLight.position.set(litCenterX * 0.45, RUNNER_Y + 0.18, -0.15);
+      this.lights.candleBounceLight.intensity = off * (0.42 * shamashFlicker + totalLitEnergy * 0.14);
+    }
+
+    // Crisp specular key light turns into subtle warm candle glint when electric lights are off
+    this.lights.silverAccent.color.setHex(0xffd6a8).lerp(new THREE.Color(0xff9a34), off);
+    this.lights.silverAccent.intensity = (0.48 + totalLitEnergy * 0.055) * on + (0.18 * shamashFlicker + totalLitEnergy * 0.065) * off;
 
     // Subtle organic flicker on table votive candles
-    this.lights.votiveL.intensity = 0.48 * (1.0 + 0.06 * Math.sin(elapsed * 6.4 + 1.2));
-    this.lights.votiveR.intensity = 0.52 * (1.0 + 0.06 * Math.cos(elapsed * 5.9 + 2.7));
+    this.lights.votiveL.intensity = (0.48 + 0.08 * off) * (1.0 + 0.06 * Math.sin(elapsed * 6.4 + 1.2));
+    this.lights.votiveR.intensity = (0.52 + 0.08 * off) * (1.0 + 0.06 * Math.cos(elapsed * 5.9 + 2.7));
 
     // 2. Update winter snowfall outside window + subtle swaying/spinning crystal window Star of David
     if (this.winterExterior) {
@@ -2018,7 +2150,8 @@ class HanukkahApp {
       }
       if (this.lights && this.lights.moonLight) {
         const avgClosure = closureSum / this.curtainPanels.length;
-        this.lights.moonLight.intensity = 0.68 * (1.0 - 0.78 * avgClosure);
+        const baseMoon = 0.68 * on + 0.16 * off;
+        this.lights.moonLight.intensity = baseMoon * (1.0 - 0.78 * avgClosure);
       }
     }
     if (this.wineSipAnim > 0 && this.kiddushRoot) {

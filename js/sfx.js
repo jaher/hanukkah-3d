@@ -30,7 +30,7 @@ export class RoomSoundEffects {
   /** Pre-fetch the real male "L'chaim!" recording (assets/audio/lchaim.wav) so toast playback is instantaneous! */
   preloadLchaimAudio() {
     if (typeof fetch !== 'function') return;
-    this.lchaimRawPromise = fetch('assets/audio/lchaim.wav?v=20261127-5')
+    this.lchaimRawPromise = fetch('assets/audio/lchaim.wav?v=20261127-6')
       .then((res) => (res.ok ? res.arrayBuffer() : null))
       .catch(() => null);
   }
@@ -38,7 +38,7 @@ export class RoomSoundEffects {
   /** Pre-fetch the real voice clip of the Lubavitcher Rebbe (assets/audio/rebbe_speech.mp3). */
   preloadRebbeSpeech() {
     if (typeof fetch !== 'function') return;
-    this.rebbeRawPromise = fetch('assets/audio/rebbe_speech.mp3?v=20261127-5')
+    this.rebbeRawPromise = fetch('assets/audio/rebbe_speech.mp3?v=20261127-6')
       .then((res) => (res.ok ? res.arrayBuffer() : null))
       .catch(() => null);
   }

@@ -216,12 +216,18 @@ export class CandleFlameRig {
     }
   }
 
+  /** Increase warm halo glow slightly when room electric lights are off so flames feel luminous in darkness. */
+  setDarkRoomBoost(amount) {
+    this.darkRoomBoost = Math.max(0, Math.min(1, amount));
+  }
+
   /**
    * Update all flames smoothly every frame, returning aggregate flicker energy (0..1+) for lights.
    */
   update(elapsed, dt) {
     let totalLitEnergy = 0;
     let shamashFlicker = 1.0;
+    const darkBoost = this.darkRoomBoost || 0.0;
 
     for (const f of this.flames) {
       if (f.igniteDelay > 0) {
@@ -251,9 +257,9 @@ export class CandleFlameRig {
       f.mesh.visible = lit > 0.01;
 
       f.halo.visible = lit > 0.01;
-      const haloOp = (f.isShamash ? 0.38 : 0.31) * lit * flicker * (1.0 + 0.45 * flareBoost);
-      f.haloMat.opacity = Math.min(0.85, haloOp);
-      const hs = f.haloBaseSize * (0.94 + 0.08 * flicker + 0.25 * flareBoost) * (0.55 + 0.45 * lit);
+      const haloOp = (f.isShamash ? 0.38 : 0.31) * lit * flicker * (1.0 + 0.45 * flareBoost) * (1.0 + 0.55 * darkBoost);
+      f.haloMat.opacity = Math.min(0.92, haloOp);
+      const hs = f.haloBaseSize * (0.94 + 0.08 * flicker + 0.25 * flareBoost) * (0.55 + 0.45 * lit) * (1.0 + 0.38 * darkBoost);
       f.halo.scale.set(hs, hs * 1.12, 1);
 
       if (f.isShamash) {
