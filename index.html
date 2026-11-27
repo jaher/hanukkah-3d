@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Hanukkah 3D — Festival of Lights</title>
   <link rel="stylesheet" href="styles.css" />
   <script type="importmap">
@@ -54,17 +54,25 @@
         </div>
       </div>
 
-      <nav class="camera-bar" aria-label="Camera viewpoints">
-        <button class="pill active" data-cam="overview" type="button">Room</button>
-        <button class="pill" data-cam="hanukkiah" type="button">Hanukkiah</button>
-        <button class="pill" data-cam="dreidel" type="button">Dreidel &amp; Gelt</button>
-        <button class="pill" data-cam="feast" type="button">Feast</button>
-        <button class="pill" data-cam="window" type="button">Jerusalem</button>
+      <nav class="camera-bar" aria-label="Camera viewpoints and actions">
+        <div class="cam-group" role="group" aria-label="Camera viewpoints">
+          <button class="pill active" data-cam="overview" type="button">Room</button>
+          <button class="pill" data-cam="hanukkiah" type="button">Hanukkiah</button>
+          <button class="pill" data-cam="dreidel" type="button">Dreidel &amp; Gelt</button>
+          <button class="pill" data-cam="feast" type="button">Feast</button>
+          <button class="pill" data-cam="window" type="button">Jerusalem</button>
+        </div>
         <span class="divider" aria-hidden="true"></span>
-        <button id="btn-spin-dreidel" class="pill pill-accent" type="button" title="Spin the dreidel on the table">Spin Dreidel</button>
-        <button id="btn-music" class="pill pill-music" type="button" aria-pressed="false" title="Toggle traditional Hanukkah music on/off (M)">♪ Music: Off</button>
-        <button id="btn-next-track" class="pill pill-icon hidden" type="button" title="Next Hanukkah melody">⏭</button>
-        <button id="btn-toggle-hud" class="pill" type="button" title="Hide UI overlay (H)">Hide UI</button>
+        <div class="action-group" role="group" aria-label="Scene actions">
+          <button id="btn-spin-dreidel" class="pill pill-accent" type="button" title="Spin the dreidel on the table">Spin Dreidel</button>
+          <button id="btn-music" class="pill pill-music" type="button" aria-pressed="false" title="Toggle traditional Hanukkah music on/off (M)">♪ Music: Off</button>
+          <button id="btn-next-track" class="pill pill-icon hidden" type="button" title="Next Hanukkah melody" aria-label="Next Hanukkah melody">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+              <path d="M2.5 3.2v9.6L9.8 8 2.5 3.2zm8.8 0h2.2v9.6h-2.2V3.2z"/>
+            </svg>
+          </button>
+          <button id="btn-toggle-hud" class="pill" type="button" title="Hide UI overlay (H)">Hide UI</button>
+        </div>
       </nav>
     </header>
 

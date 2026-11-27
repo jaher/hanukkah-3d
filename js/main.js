@@ -362,7 +362,9 @@ class HanukkahApp {
     this.scene.environmentIntensity = 1.05;
 
     // 3. Camera & Damped OrbitControls (near = 0.08 for crisp depth precision & zero window z-fighting!)
+    // Responsive FOV widens smoothly on tall portrait phones & foldable cover screens so the entire table frames beautifully!
     this.camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.08, 30);
+    this.updateCameraProjection();
     this.camera.position.copy(CAMERA_PRESETS.overview.pos);
 
     this.controls = new OrbitControls(this.camera, this.canvas);
@@ -690,9 +692,10 @@ class HanukkahApp {
     this.scene.add(kiddush);
 
     // Braided Challah on Carved Walnut Board with Real Cloth-Simulated Liftable Embroidered Challah Cover!
+    // Seated cleanly centered on the flat embroidered runner plane so all 4 draped corners lie flush on the surface!
     const challah = enableShadows(assets.models.challah.scene, 1.05);
-    challah.position.set(0.60, RUNNER_Y, -0.49);
-    challah.rotation.y = -0.42;
+    challah.position.set(0.61, RUNNER_Y, -0.38);
+    challah.rotation.y = -0.18;
     this.challahCover = challah.getObjectByName('Challah_Cover_Group');
     if (this.challahCover) {
       this.challahCoverBasePos = this.challahCover.position.clone();
@@ -1482,10 +1485,18 @@ class HanukkahApp {
     }
   }
 
+  updateCameraProjection() {
+    if (!this.camera) return;
+    const aspect = window.innerWidth / Math.max(1, window.innerHeight);
+    this.camera.aspect = aspect;
+    // Preserve exact 42 deg FOV on desktop/landscape; widen smoothly on portrait phones & tall foldable cover screens!
+    this.camera.fov = aspect < 1.0 ? Math.min(62, 42 / Math.pow(aspect, 0.42)) : 42;
+    this.camera.updateProjectionMatrix();
+  }
+
   onResize() {
     if (!this.camera || !this.renderer) return;
-    this.camera.aspect = window.innerWidth / window.innerHeight;
-    this.camera.updateProjectionMatrix();
+    this.updateCameraProjection();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
   }
 
