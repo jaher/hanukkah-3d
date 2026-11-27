@@ -672,7 +672,9 @@ def main():
     generate_dreidel_and_gelt_textures()
     generate_food_and_ceramic_textures()
     generate_carved_silver_textures()
-    generate_winter_night_backdrop()
+    # Preserve the photorealistic winter_night_backdrop.jpg if already installed
+    if not os.path.exists(os.path.join(TEXTURES_DIR, "winter_night_backdrop.jpg")):
+        generate_winter_night_backdrop()
     print("[tex] All procedural PBR textures generated successfully.")
 
 

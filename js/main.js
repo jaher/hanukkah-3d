@@ -15,6 +15,7 @@ import { GatedAssetLoader } from './asset-loader.js';
 import { computeHanukkahNight, HANUKKAH_2026_NIGHT_DATES } from './hanukkah-calendar.js';
 import { CandleFlameRig } from './flames.js';
 import { createWinterNightExterior } from './winter-window.js';
+import { HanukkahMusicPlayer } from './hanukkah-music.js';
 
 // Exact world heights matching Blender exports (1 unit = 1 meter)
 const TABLE_Z = -0.35;
@@ -161,10 +162,14 @@ class HanukkahApp {
     // Camera transition state
     this.camLerp = null;
 
-    // Interactive playable dreidel spin state
+    // Interactive playable dreidels scattered across the table
     this.spinDreidelObj = null;
-    this.dreidelSpin = { active: false, time: 0, duration: 2.8, startYaw: 0, targetYaw: 0, outcome: null };
+    this.standingDreidels = [];
+    this.dreidelSpin = { active: false, targetObj: null, time: 0, duration: 2.8, startYaw: 0, targetYaw: 0, outcome: null };
     this.toastTimer = null;
+
+    // Subtle traditional Hanukkah music player (public-domain Ma'oz Tzur, Dreidel Song, Oh Hanukkah)
+    this.musicPlayer = new HanukkahMusicPlayer((state) => this.updateMusicHUD(state));
 
     this.clock = new THREE.Clock();
 
@@ -178,11 +183,15 @@ class HanukkahApp {
       setAutoNight: () => this.selectAutoNight(),
       setCamera: (preset, instant = false) => this.goToCamera(preset, instant),
       spinDreidel: () => this.triggerDreidelSpin(),
+      toggleMusic: () => this.musicPlayer.toggle(),
+      nextTrack: () => this.musicPlayer.nextTrack(),
       getState: () => ({
         isLoaded: this.isLoaded,
         mode: this.mode,
         activeNight: this.activeNight,
         calendar: this.calendarInfo,
+        musicPlaying: this.musicPlayer.isPlaying,
+        musicTrack: this.musicPlayer.currentTrack.title,
       }),
     };
   }
@@ -413,24 +422,54 @@ class HanukkahApp {
     dreidelLarge.rotation.y = 0.42;
     this.scene.add(dreidelLarge);
 
-    // Playable Upright Blue Dreidel (front-left on clean walnut wood, interactive spin!)
-    const dreidelSpin = enableShadows(assets.models.dreidel_blue.scene, 1.15);
-    dreidelSpin.position.set(-0.17, TABLE_Y, -0.08);
-    dreidelSpin.rotation.y = 0.35;
-    this.scene.add(dreidelSpin);
-    this.spinDreidelObj = dreidelSpin;
+    // Scattered playable dreidels spread naturally across the entire dining table (as if mid-game!)
+    // Some standing upright (all clickable to spin!), some lying naturally on their sides at varied angles.
+    const blueProto = assets.models.dreidel_blue.scene;
+    const woodProto = assets.models.dreidel_wood.scene;
 
-    // Second Resting Wooden Dreidel leaning naturally on its side near the gelt
-    const dreidelWood = enableShadows(assets.models.dreidel_wood.scene, 1.1);
-    dreidelWood.position.set(-0.46, TABLE_Y + 0.017, 0.01);
-    dreidelWood.rotation.set(Math.PI / 2 - 0.16, 0.45, 0.85);
-    this.scene.add(dreidelWood);
+    // 1. Standing upright blue dreidel (front-left near gelt — primary interactive spinner)
+    const dreidelStandLeft = enableShadows(blueProto, 1.15);
+    dreidelStandLeft.position.set(-0.17, TABLE_Y, -0.08);
+    dreidelStandLeft.rotation.y = 0.35;
+    this.scene.add(dreidelStandLeft);
+    this.spinDreidelObj = dreidelStandLeft;
+    this.standingDreidels.push(dreidelStandLeft);
 
-    // Third Resting Blue Dreidel tilted casually nearby
-    const dreidelBlue2 = enableShadows(assets.models.dreidel_blue.scene.clone(), 1.15);
-    dreidelBlue2.position.set(-0.14, TABLE_Y + 0.017, 0.02);
-    dreidelBlue2.rotation.set(Math.PI / 2 - 0.15, -0.7, -1.1);
-    this.scene.add(dreidelBlue2);
+    // 2. Standing upright wooden dreidel (front-center-right between menorah and sufganiyot)
+    const dreidelStandCenter = enableShadows(woodProto, 1.10);
+    dreidelStandCenter.position.set(0.14, TABLE_Y, -0.02);
+    dreidelStandCenter.rotation.y = -0.62;
+    this.scene.add(dreidelStandCenter);
+    this.standingDreidels.push(dreidelStandCenter);
+
+    // 3. Standing upright blue dreidel (far right corner past the sufganiyot platter)
+    const dreidelStandRight = enableShadows(blueProto.clone(), 1.15);
+    dreidelStandRight.position.set(0.61, TABLE_Y, 0.02);
+    dreidelStandRight.rotation.y = 1.18;
+    this.scene.add(dreidelStandRight);
+    this.standingDreidels.push(dreidelStandRight);
+
+    // Helper: lay a dreidel cleanly flat on its side with zero sinking into the table!
+    // Dreidel local axis is +Y from tip (0) to handle (0.067), half-width = 0.0145.
+    // Using 'YXZ' order: rotate around world Y (yaw on table), tilt X ~ 82° to lay flat, optional roll Z.
+    const placeLyingDreidel = (obj, x, surfaceY, z, yaw, roll = 0) => {
+      obj.position.set(x, surfaceY + 0.0155, z);
+      obj.rotation.order = 'YXZ';
+      obj.rotation.set(Math.PI / 2 - 0.13, yaw, roll);
+      this.scene.add(obj);
+    };
+
+    // 4. Resting wooden dreidel lying on its side (front-left near candle box & matches)
+    placeLyingDreidel(enableShadows(woodProto.clone(), 1.10), -0.51, TABLE_Y, 0.02, 0.72, 0.0);
+
+    // 5. Resting blue dreidel lying on its side (center-front edge of table)
+    placeLyingDreidel(enableShadows(blueProto.clone(), 1.15), -0.04, TABLE_Y, 0.04, -1.15, 0.0);
+
+    // 6. Resting wooden dreidel lying on its side (back-left on walnut wood behind heirloom dreidel)
+    placeLyingDreidel(enableShadows(woodProto.clone(), 1.10), -0.58, TABLE_Y, -0.62, 2.25, 0.0);
+
+    // 7. Resting blue dreidel lying on its side (center-right near kiddush cup & sufganiyot)
+    placeLyingDreidel(enableShadows(blueProto.clone(), 1.15), 0.22, RUNNER_Y, -0.26, -0.48, 0.0);
 
     // Embossed Gold & Silver Chocolate Gelt + Royal-Blue Drawstring Pouch (left foreground)
     const gelt = enableShadows(assets.models.gelt.scene, 1.45);
@@ -720,20 +759,34 @@ class HanukkahApp {
     };
   }
 
-  triggerDreidelSpin() {
-    if (!this.spinDreidelObj) return;
+  triggerDreidelSpin(targetObj = null) {
+    const obj = targetObj || this.spinDreidelObj;
+    if (!obj) return;
     const outcome = DREIDEL_OUTCOMES[Math.floor(Math.random() * DREIDEL_OUTCOMES.length)];
     this.dreidelSpin = {
       active: true,
+      targetObj: obj,
       time: 0,
       duration: 2.6,
-      startYaw: this.spinDreidelObj.rotation.y,
+      startYaw: obj.rotation.y,
       targetYaw: outcome.yaw + Math.PI * 2 * (7 + Math.floor(Math.random() * 3)),
       outcome,
     };
 
     const toast = document.getElementById('dreidel-toast');
     toast.classList.add('hidden');
+  }
+
+  updateMusicHUD({ isPlaying, trackTitle }) {
+    const btn = document.getElementById('btn-music');
+    const nextBtn = document.getElementById('btn-next-track');
+    if (!btn) return;
+    btn.classList.toggle('playing', isPlaying);
+    btn.setAttribute('aria-pressed', String(isPlaying));
+    btn.textContent = isPlaying ? `♪ ${trackTitle}` : '♪ Music: Off';
+    if (nextBtn) {
+      nextBtn.classList.toggle('hidden', !isPlaying);
+    }
   }
 
   showDreidelToast(outcome) {
@@ -766,6 +819,14 @@ class HanukkahApp {
       this.triggerDreidelSpin();
     });
 
+    document.getElementById('btn-music').addEventListener('click', () => {
+      this.musicPlayer.toggle();
+    });
+
+    document.getElementById('btn-next-track').addEventListener('click', () => {
+      this.musicPlayer.nextTrack();
+    });
+
     const toggleHud = () => {
       const hidden = this.hud.classList.toggle('hidden');
       document.getElementById('btn-show-hud').classList.toggle('hidden', !hidden);
@@ -773,7 +834,7 @@ class HanukkahApp {
     document.getElementById('btn-toggle-hud').addEventListener('click', toggleHud);
     document.getElementById('btn-show-hud').addEventListener('click', toggleHud);
 
-    // Click directly on the upright playable dreidel on the table to spin it!
+    // Click directly on any standing playable dreidel on the table to spin it!
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
     let pointerDownPos = null;
@@ -781,15 +842,17 @@ class HanukkahApp {
       pointerDownPos = { x: e.clientX, y: e.clientY };
     });
     this.canvas.addEventListener('pointerup', (e) => {
-      if (!pointerDownPos || !this.spinDreidelObj) return;
+      if (!pointerDownPos || !this.standingDreidels.length) return;
       const dist = Math.hypot(e.clientX - pointerDownPos.x, e.clientY - pointerDownPos.y);
       if (dist > 6) return;
       pointer.x = (e.clientX / window.innerWidth) * 2 - 1;
       pointer.y = -(e.clientY / window.innerHeight) * 2 + 1;
       raycaster.setFromCamera(pointer, this.camera);
-      const hits = raycaster.intersectObject(this.spinDreidelObj, true);
-      if (hits.length > 0) {
-        this.triggerDreidelSpin();
+      for (const dr of this.standingDreidels) {
+        if (raycaster.intersectObject(dr, true).length > 0) {
+          this.triggerDreidelSpin(dr);
+          break;
+        }
       }
     });
 
@@ -803,6 +866,8 @@ class HanukkahApp {
         this.goToCamera('overview');
       } else if (e.key === 'h' || e.key === 'H') {
         toggleHud();
+      } else if (e.key === 'm' || e.key === 'M') {
+        this.musicPlayer.toggle();
       } else if (e.key === ' ') {
         e.preventDefault();
         this.triggerDreidelSpin();
@@ -876,22 +941,23 @@ class HanukkahApp {
     }
 
     // 3. Smooth interactive Dreidel spin physics
-    if (this.dreidelSpin.active && this.spinDreidelObj) {
+    const spinTarget = this.dreidelSpin.targetObj || this.spinDreidelObj;
+    if (this.dreidelSpin.active && spinTarget) {
       this.dreidelSpin.time += dt;
       const p = Math.min(1.0, this.dreidelSpin.time / this.dreidelSpin.duration);
       const easeOut = 1.0 - Math.pow(1.0 - p, 3.2);
-      this.spinDreidelObj.rotation.y =
+      spinTarget.rotation.y =
         this.dreidelSpin.startYaw + (this.dreidelSpin.targetYaw - this.dreidelSpin.startYaw) * easeOut;
 
       // Realistic gyroscopic wobble that builds slightly as spin slows, then settles upright
       const wobbleAmp = 0.18 * Math.sin(p * Math.PI) * (0.4 + 0.6 * p);
-      this.spinDreidelObj.rotation.x = Math.sin(elapsed * 16.0) * wobbleAmp;
-      this.spinDreidelObj.rotation.z = Math.cos(elapsed * 16.0) * wobbleAmp;
+      spinTarget.rotation.x = Math.sin(elapsed * 16.0) * wobbleAmp;
+      spinTarget.rotation.z = Math.cos(elapsed * 16.0) * wobbleAmp;
 
       if (p >= 1.0) {
         this.dreidelSpin.active = false;
-        this.spinDreidelObj.rotation.x = 0;
-        this.spinDreidelObj.rotation.z = 0;
+        spinTarget.rotation.x = 0;
+        spinTarget.rotation.z = 0;
         this.showDreidelToast(this.dreidelSpin.outcome);
       }
     }

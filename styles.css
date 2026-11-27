@@ -299,6 +299,23 @@ body {
   background: rgba(255, 180, 68, 0.28);
 }
 
+.pill-music {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(186, 206, 240, 0.25);
+  color: var(--silver);
+}
+
+.pill-music.playing {
+  background: rgba(255, 188, 78, 0.22);
+  border-color: rgba(255, 202, 112, 0.58);
+  color: #ffe8bd;
+  box-shadow: 0 0 12px rgba(255, 180, 68, 0.22);
+}
+
+.pill-icon.hidden {
+  display: none;
+}
+
 .pill-icon {
   padding: 6px 10px;
   font-size: 11.5px;

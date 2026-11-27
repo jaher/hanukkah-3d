@@ -1,6 +1,8 @@
 # Hanukkah 3D — Festival of Lights
 
-A photorealistic, interactive **Three.js** Hanukkah room featuring a deeply carved 925 sterling silver nine-branched *hanukkiah* (menorah), traditional Judaica modeled in headless Blender, live animated candlelight, winter snowfall outside the window, and automatic night-by-night lighting for **Hanukkah 2026 (December 4–12)**.
+### **[Launch the Live 3D Hanukkah Room → https://jaher.github.io/hanukkah-3d/](https://jaher.github.io/hanukkah-3d/)**
+
+A photorealistic, interactive **Three.js** Hanukkah room featuring a deeply carved 925 sterling silver nine-branched *hanukkiah* (menorah), traditional Judaica modeled in headless Blender, live animated candlelight, a photorealistic winter night view of Jerusalem's Old City through the window, traditional Hanukkah music, and automatic night-by-night lighting for **Hanukkah 2026 (December 4–12)**.
 
 ![Hanukkah 3D — Warm Room Overview on Night 8](docs/screenshots/room-overview.jpg)
 
@@ -32,8 +34,8 @@ Every prop in the room was modeled in headless Blender (`scripts/blender/`) with
 | :---: | :---: |
 | ![Heirloom Filigree Dreidel, Playable Dreidels, and Chocolate Gelt](docs/screenshots/dreidel-gelt.jpg) | ![Sufganiyot Platter, Sterling Silver Kiddush Cup, and Challah with Embroidered Cover](docs/screenshots/feast-table.jpg) |
 
-### Winter Night Window
-![Winter Night Window with Snowfall, Crescent Moon, and Crystal Star of David](docs/screenshots/winter-window.jpg)
+### Jerusalem Old City Winter Night Window
+![Photorealistic Jerusalem Old City Winter Night Skyline — Golden Limestone Rooftops, Western Wall, and Dome of the Rock through the Window](docs/screenshots/winter-window.jpg)
 
 ---
 
@@ -42,10 +44,11 @@ Every prop in the room was modeled in headless Blender (`scripts/blender/`) with
 - **Carved 925 Sterling Silver Hanukkiah**: Stepped gadrooned domed pedestal on four baroque scrolled acanthus feet, repoussé floral & grapevine chasing with dark oxidized patina crevices, spiral-roped branches, double-tier filigree scrollwork, floral rosettes, scalloped bobeches, unobstructed 3D Star of David crest with sapphire cabochon, and a distinctly elevated *shamash*.
 - **Photorealistic Fire & Lighting**: Custom GLSL teardrop flame shader with subtle translucent blue combustion base, incandescent core, golden-amber flickering tip, soft additive glow halos, and shadow-casting flickering dynamic point lights.
 - **Interactive Controls**:
-  - **Orbit & Zoom**: Smooth damped camera controls with 5 curated viewpoints (`Room`, `Hanukkiah`, `Dreidel & Gelt`, `Feast`, `Winter Night`).
-  - **Interactive Dreidel**: Click the upright blue dreidel on the table (or press `Space` / **Spin Dreidel**) to spin it with wobble physics and see which Hebrew letter lands up (**נ Nun**, **ג Gimel**, **ה Hey**, or **ש Shin**).
+  - **Orbit & Zoom**: Smooth damped camera controls with 5 curated viewpoints (`Room`, `Hanukkiah`, `Dreidel & Gelt`, `Feast`, `Jerusalem`).
+  - **Interactive Dreidels Scattered Mid-Game**: Seven painted blue and carved wooden dreidels are scattered naturally across the walnut table (some standing, some lying on their side as if mid-game) alongside the heirloom filigree dreidel; click any standing dreidel (or press `Space` / **Spin Dreidel**) to spin it with wobble physics and see which Hebrew letter lands up (**נ Nun**, **ג Gimel**, **ה Hey**, or **ש Shin**).
+  - **Subtle Traditional Hanukkah Music**: Built-in polyphonic Web Audio synthesizer playing public-domain arrangements of *Ma'oz Tzur*, *The Dreidel Song*, and *Hanukkah, Oh Hanukkah* with warm room reverb at a subtle background volume (toggle with **♪ Music** or `M`, skip track with `⏭`).
   - **Gated Loading with Cancel / Retry**: The scene remains hidden until all 18 required `.glb` models, metadata, and lightmaps finish loading, backed by real `AbortController` cancellation and clean retry.
-  - **Keyboard Shortcuts**: `0`–`8` select night, `A` returns to Auto calendar mode, `R` resets camera, `Space` spins the dreidel, `H` toggles the HUD.
+  - **Keyboard Shortcuts**: `0`–`8` select night, `A` returns to Auto calendar mode, `R` resets camera, `Space` spins a dreidel, `M` toggles music, `H` toggles the HUD.
 
 ## Local Development
 
