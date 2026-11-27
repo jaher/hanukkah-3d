@@ -145,6 +145,18 @@ export class HanukkahMusicPlayer {
     this.timerId = null;
     // Subtle room-level background volume so narration is never overpowered
     this.baseVolume = 0.14;
+    this.isDucked = false;
+  }
+
+  /** Smoothly lower/restore music volume while the Rebbe's voice clip is playing. */
+  setDucked(ducked) {
+    this.isDucked = Boolean(ducked);
+    if (!this.ctx || !this.masterGain || !this.isPlaying || !this.schedulerRunning) return;
+    const now = this.ctx.currentTime;
+    const target = this.isDucked ? this.baseVolume * 0.22 : this.baseVolume;
+    this.masterGain.gain.cancelScheduledValues(now);
+    this.masterGain.gain.setValueAtTime(Math.max(0.0001, this.masterGain.gain.value), now);
+    this.masterGain.gain.linearRampToValueAtTime(target, now + (this.isDucked ? 0.25 : 0.65));
   }
 
   get currentTrack() {
@@ -261,7 +273,7 @@ export class HanukkahMusicPlayer {
     const now = this.ctx.currentTime;
     this.masterGain.gain.cancelScheduledValues(now);
     this.masterGain.gain.setValueAtTime(Math.max(0.0001, this.masterGain.gain.value), now);
-    this.masterGain.gain.linearRampToValueAtTime(this.baseVolume, now + 0.8);
+    this.masterGain.gain.linearRampToValueAtTime(this.isDucked ? this.baseVolume * 0.22 : this.baseVolume, now + 0.8);
     this.emitState();
     this.scheduleNext();
   }

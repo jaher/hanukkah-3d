@@ -11,16 +11,17 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { GatedAssetLoader } from './asset-loader.js?v=20261127-3';
-import { computeHanukkahNight, HANUKKAH_2026_NIGHT_DATES, isShabbatForSelection } from './hanukkah-calendar.js?v=20261127-3';
-import { CandleFlameRig } from './flames.js?v=20261127-3';
-import { createWinterNightExterior } from './winter-window.js?v=20261127-3';
-import { HanukkahMusicPlayer } from './hanukkah-music.js?v=20261127-3';
-import { RoomSoundEffects } from './sfx.js?v=20261127-3';
-import { GeltCoinPhysics } from './coin-physics.js?v=20261127-3';
-import { ChallahClothCover } from './phys-cloth.js?v=20261127-3';
+import { GatedAssetLoader } from './asset-loader.js?v=20261127-4';
+import { computeHanukkahNight, HANUKKAH_2026_NIGHT_DATES, isShabbatForSelection } from './hanukkah-calendar.js?v=20261127-4';
+import { CandleFlameRig } from './flames.js?v=20261127-4';
+import { createWinterNightExterior } from './winter-window.js?v=20261127-4';
+import { HanukkahMusicPlayer } from './hanukkah-music.js?v=20261127-4';
+import { RoomSoundEffects } from './sfx.js?v=20261127-4';
+import { GeltCoinPhysics } from './coin-physics.js?v=20261127-4';
+import { ChallahClothCover } from './phys-cloth.js?v=20261127-4';
+import { VelvetCurtainPanel } from './curtain-cloth.js?v=20261127-4';
 
-const ASSET_VERSION = '20261127-3';
+const ASSET_VERSION = '20261127-4';
 const vUrl = (path) => `${path}?v=${ASSET_VERSION}`;
 
 // Exact world heights matching Blender exports (1 unit = 1 meter)
@@ -225,9 +226,9 @@ class HanukkahApp {
     this.starWallSpin = 0;
     this.windowStarSpinVel = 0;
     this.curtains = [];
-    this.curtainSwayTimer = 0;
+    this.curtainPanels = [];
     this.lampsDimmed = false;
-    this.rebbeQuoteIdx = 0;
+    this.rebbeSpeechActive = false;
     this.candleBoxAnim = 0;
     this.candleBoxRoot = null;
     this.interactiveRegistry = []; // [{ root, type, data }]
@@ -253,6 +254,9 @@ class HanukkahApp {
       sipWine: () => this.sipKiddushWine(),
       spinCoin: (idx = 0) => this.spinGeltCoin(idx),
       toggleChallahCover: () => this.toggleChallahCover(),
+      toggleRebbeSpeech: () => this.toggleRebbeSpeech(),
+      stopRebbeSpeech: () => this.stopRebbeSpeech(true),
+      toggleCurtain: (idx = 0) => (this.curtainPanels[idx] ? this.curtainPanels[idx].toggle() : null),
       toggleMusic: () => this.musicPlayer.toggle(),
       nextTrack: () => this.musicPlayer.nextTrack(),
       getState: () => ({
@@ -262,6 +266,8 @@ class HanukkahApp {
         calendar: this.calendarInfo,
         musicPlaying: this.musicPlayer.isPlaying,
         musicTrack: this.musicPlayer.currentTrack.title,
+        rebbeSpeaking: Boolean(this.rebbeSpeechActive || this.sfx.isRebbeSpeaking()),
+        curtainsClosed: this.curtainPanels.map((p) => p.isClosed),
         wineLevel: this.wineLevel,
         sufganiyotStates: this.sufganiyotItems.map((s) => s.state),
         latkesRemaining: this.latkeItems.filter((l) => !l.eaten).length,
@@ -412,9 +418,16 @@ class HanukkahApp {
     });
     this.controls.update();
 
-    // 4. Room Shell + Cycles GI/AO Lightmap
+    // 4. Room Shell + Cycles GI/AO Lightmap + Live Interactive Velvet Curtains
     const roomRoot = assets.models.room.scene;
+    let curtainFabricMat = null;
+    let curtainTieMat = null;
+    let curtainRingMat = null;
+    const bakedCurtainNodes = [];
     roomRoot.traverse((obj) => {
+      if (obj.name && (obj.name.includes('Curtain_Left') || obj.name.includes('Curtain_Right'))) {
+        bakedCurtainNodes.push(obj);
+      }
       if (!obj.isMesh) return;
       obj.receiveShadow = true;
       if (obj.name.includes('Window_Glass')) {
@@ -436,14 +449,19 @@ class HanukkahApp {
           m.lightMapIntensity = 0.45;
           m.needsUpdate = true;
         }
-      } else if (obj.name.includes('Curtain')) {
-        obj.castShadow = true;
-        // Upgrade curtain textile mesh to physically-based velvet/woven-cloth sheen material!
+      } else if (
+        obj.name.includes('Curtain_Left') ||
+        obj.name.includes('Curtain_Right') ||
+        (obj.parent && obj.parent.name && (obj.parent.name.includes('Curtain_Left') || obj.parent.name.includes('Curtain_Right')))
+      ) {
+        // Extract authentic PBR velvet, braided gold tieback & brushed-silver ring materials
+        // and replace static baked panels with live interactive real-fabric VelvetCurtainPanel rigs!
         const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-        const upgraded = mats.map((m) => {
-          if (m && m.name && m.name.includes('RoyalVelvetCurtain')) {
-            return new THREE.MeshPhysicalMaterial({
-              name: m.name,
+        for (const m of mats) {
+          if (!m || !m.name) continue;
+          if (!curtainFabricMat && m.name.includes('RoyalVelvetCurtain')) {
+            curtainFabricMat = new THREE.MeshPhysicalMaterial({
+              name: m.name + '_Live',
               color: m.color ? m.color.clone() : new THREE.Color(0xffffff),
               map: m.map || null,
               normalMap: m.normalMap || null,
@@ -456,18 +474,59 @@ class HanukkahApp {
               sheenColor: new THREE.Color(0x6e90d4),
               side: THREE.DoubleSide,
             });
+          } else if (!curtainTieMat && m.name.includes('CurtainTiebackCord')) {
+            curtainTieMat = m.clone();
+          } else if (!curtainRingMat && m.name.includes('BrushedSilverHardware')) {
+            curtainRingMat = m.clone();
           }
-          return m;
-        });
-        obj.material = Array.isArray(obj.material) ? upgraded : upgraded[0];
-        this.curtains.push({ mesh: obj, basePos: obj.position.clone() });
-        this.registerInteractive(obj, 'curtain');
+        }
+        bakedCurtainNodes.push(obj);
       } else if (obj.name.includes('LightingFixtures')) {
         obj.castShadow = true;
         this.registerInteractive(obj, 'lamps');
       }
     });
+    // Hide static baked curtains while keeping the brushed-silver CurtainRod and finials intact!
+    for (const oldNode of bakedCurtainNodes) {
+      oldNode.visible = false;
+    }
     this.scene.add(roomRoot);
+
+    if (!curtainFabricMat) {
+      curtainFabricMat = new THREE.MeshPhysicalMaterial({
+        color: new THREE.Color(0x182b52),
+        roughness: 0.86,
+        metalness: 0.0,
+        sheen: 0.92,
+        sheenRoughness: 0.56,
+        sheenColor: new THREE.Color(0x6e90d4),
+        side: THREE.DoubleSide,
+      });
+    }
+    if (!curtainTieMat) {
+      curtainTieMat = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(0xc2ad7a),
+        roughness: 0.58,
+        metalness: 0.22,
+      });
+    }
+    if (!curtainRingMat) {
+      curtainRingMat = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(0xe6ebf2),
+        roughness: 0.22,
+        metalness: 0.95,
+      });
+    }
+    for (const side of [-1, 1]) {
+      const panel = new VelvetCurtainPanel(this.scene, {
+        side,
+        fabricMat: curtainFabricMat,
+        tieMat: curtainTieMat,
+        ringMat: curtainRingMat,
+      });
+      this.curtainPanels.push(panel);
+      this.registerInteractive(panel.group, 'curtain', { panel });
+    }
 
     // 5. Dining Table + Embroidered Runner + Table Lightmap
     const tableRoot = assets.models.table.scene;
@@ -1468,13 +1527,9 @@ class HanukkahApp {
         this.flameRig.flareFlame(info.flame);
         this.showActionToast('🕯️', 'Cobalt Votive Candle', 'Warm amber flame shimmering through frosted cobalt glass');
         break;
-      case 'rebbe_portrait': {
-        this.sfx.playChime(880);
-        const [sym, title, quote] = REBBE_QUOTES[this.rebbeQuoteIdx % REBBE_QUOTES.length];
-        this.rebbeQuoteIdx += 1;
-        this.showActionToast(sym, title, quote);
+      case 'rebbe_portrait':
+        this.toggleRebbeSpeech();
         break;
-      }
       case 'star_wall':
         this.starWallSpin = 1.2;
         this.sfx.playChime(1318.5);
@@ -1494,9 +1549,17 @@ class HanukkahApp {
         this.toggleRoomLamps();
         break;
       case 'curtain':
-        this.curtainSwayTimer = 1.4;
-        this.sfx.playClothRustle();
-        this.showActionToast('🪟', 'Velvet Drapes', 'A soft winter draft ripples the royal-blue velvet curtains');
+        if (info.panel) {
+          const closed = info.panel.toggle();
+          this.sfx.playClothRustle();
+          this.showActionToast(
+            '🪟',
+            closed ? `${info.panel.label} Drawn Closed` : `${info.panel.label} Tied Back`,
+            closed
+              ? 'Tieback cord releases and the velvet folds glide across the winter window'
+              : 'Velvet pleats gather to the side and cinch snugly with the braided tieback cord'
+          );
+        }
         break;
       default:
         break;
@@ -1517,18 +1580,80 @@ class HanukkahApp {
     }
   }
 
-  showActionToast(symbol, title, detail) {
+  toggleRebbeSpeech() {
+    if (this.rebbeSpeechActive || this.sfx.isRebbeSpeaking()) {
+      this.stopRebbeSpeech(true);
+      return;
+    }
+    this.rebbeSpeechActive = true;
+    this.musicPlayer.setDucked(true);
+    this.showActionToast(
+      '✡',
+      'The Lubavitcher Rebbe',
+      '"B\'simcha u\'v\'tuv levav…" — With joy and gladness of heart (click portrait or Stop to end)',
+      { persistent: true, stoppable: true }
+    );
+    this.sfx
+      .playRebbeSpeech({
+        onStart: () => {
+          this.rebbeSpeechActive = true;
+          this.musicPlayer.setDucked(true);
+        },
+        onEnd: () => {
+          this.rebbeSpeechActive = false;
+          this.musicPlayer.setDucked(false);
+          const stopBtn = document.getElementById('btn-toast-stop');
+          if (stopBtn) stopBtn.classList.add('hidden');
+          const toast = document.getElementById('dreidel-toast');
+          if (toast && !toast.classList.contains('hidden')) {
+            if (this.toastTimer) clearTimeout(this.toastTimer);
+            this.toastTimer = setTimeout(() => toast.classList.add('hidden'), 2200);
+          }
+        },
+      })
+      .then((started) => {
+        if (!started && this.rebbeSpeechActive) {
+          this.rebbeSpeechActive = false;
+          this.musicPlayer.setDucked(false);
+          const stopBtn = document.getElementById('btn-toast-stop');
+          if (stopBtn) stopBtn.classList.add('hidden');
+        }
+      });
+  }
+
+  stopRebbeSpeech(showStoppedNote = false) {
+    this.rebbeSpeechActive = false;
+    this.sfx.stopRebbeSpeech(true);
+    this.musicPlayer.setDucked(false);
+    const stopBtn = document.getElementById('btn-toast-stop');
+    if (stopBtn) stopBtn.classList.add('hidden');
+    if (showStoppedNote) {
+      this.showActionToast('✡', 'The Lubavitcher Rebbe', 'Audio stopped — click the portrait anytime to listen again');
+    } else {
+      const toast = document.getElementById('dreidel-toast');
+      if (toast) toast.classList.add('hidden');
+    }
+  }
+
+  showActionToast(symbol, title, detail, { persistent = false, stoppable = false } = {}) {
     const toast = document.getElementById('dreidel-toast');
     if (!toast) return;
     const letterEl = document.getElementById('dreidel-letter');
     const nameEl = document.getElementById('dreidel-name');
     const meaningEl = document.getElementById('dreidel-meaning');
+    const stopBtn = document.getElementById('btn-toast-stop');
     if (letterEl) letterEl.textContent = symbol;
     if (nameEl) nameEl.textContent = title;
     if (meaningEl) meaningEl.textContent = detail;
+    if (stopBtn) stopBtn.classList.toggle('hidden', !stoppable);
     toast.classList.remove('hidden');
-    if (this.toastTimer) clearTimeout(this.toastTimer);
-    this.toastTimer = setTimeout(() => toast.classList.add('hidden'), 4400);
+    if (this.toastTimer) {
+      clearTimeout(this.toastTimer);
+      this.toastTimer = null;
+    }
+    if (!persistent) {
+      this.toastTimer = setTimeout(() => toast.classList.add('hidden'), 4400);
+    }
   }
 
   showDreidelToast(outcome) {
@@ -1583,6 +1708,14 @@ class HanukkahApp {
     const toggleHudBtn = document.getElementById('btn-toggle-hud');
     if (toggleHudBtn) toggleHudBtn.addEventListener('click', toggleHud);
     if (showHudBtn) showHudBtn.addEventListener('click', toggleHud);
+
+    const toastStopBtn = document.getElementById('btn-toast-stop');
+    if (toastStopBtn) {
+      toastStopBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.stopRebbeSpeech(true);
+      });
+    }
 
     // Unified raycaster for ALL interactive objects in the room!
     const raycaster = new THREE.Raycaster();
@@ -1650,6 +1783,8 @@ class HanukkahApp {
         toggleHud();
       } else if (e.key === 'm' || e.key === 'M') {
         this.musicPlayer.toggle();
+      } else if (e.key === 'Escape' && (this.rebbeSpeechActive || this.sfx.isRebbeSpeaking())) {
+        this.stopRebbeSpeech(true);
       } else if (e.key === ' ') {
         e.preventDefault();
         this.triggerDreidelSpin();
@@ -1866,14 +2001,17 @@ class HanukkahApp {
       const u = this.candleBoxAnim / 0.45;
       this.candleBoxRoot.position.y = TABLE_Y + 0.008 * Math.sin(u * Math.PI);
     }
-    // Subtle breezy curtain ripple when touched (gentle draft breath without swinging around room origin!)
-    if (this.curtainSwayTimer > 0) {
-      this.curtainSwayTimer = Math.max(0, this.curtainSwayTimer - dt);
-      const u = this.curtainSwayTimer / 1.4;
-      const wave = Math.sin(u * Math.PI * 3.0) * 0.018 * u;
-      this.curtains.forEach((c, idx) => {
-        c.mesh.position.z = c.basePos.z + wave * (idx === 0 ? 1 : 0.85);
-      });
+    // Live real-fabric velvet curtains (sliding rings, tieback cord wrap/release, spring-damper cloth lag!)
+    if (this.curtainPanels && this.curtainPanels.length) {
+      let closureSum = 0;
+      for (const panel of this.curtainPanels) {
+        panel.update(dt, elapsed);
+        closureSum += panel.getClosureFactor();
+      }
+      if (this.lights && this.lights.moonLight) {
+        const avgClosure = closureSum / this.curtainPanels.length;
+        this.lights.moonLight.intensity = 0.68 * (1.0 - 0.78 * avgClosure);
+      }
     }
     if (this.wineSipAnim > 0 && this.kiddushRoot) {
       this.wineSipAnim = Math.max(0, this.wineSipAnim - dt);

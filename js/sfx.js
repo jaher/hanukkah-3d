@@ -18,15 +18,110 @@ export class RoomSoundEffects {
     this.ctx = null;
     this.lchaimRawPromise = null;
     this.lchaimBuffer = null;
+    this.rebbeRawPromise = null;
+    this.rebbeBuffer = null;
+    this.rebbeSource = null;
+    this.rebbeGain = null;
+    this.rebbeOnEnd = null;
     this.preloadLchaimAudio();
+    this.preloadRebbeSpeech();
   }
 
   /** Pre-fetch the real male "L'chaim!" recording (assets/audio/lchaim.wav) so toast playback is instantaneous! */
   preloadLchaimAudio() {
     if (typeof fetch !== 'function') return;
-    this.lchaimRawPromise = fetch('assets/audio/lchaim.wav?v=20261127-3')
+    this.lchaimRawPromise = fetch('assets/audio/lchaim.wav?v=20261127-4')
       .then((res) => (res.ok ? res.arrayBuffer() : null))
       .catch(() => null);
+  }
+
+  /** Pre-fetch the real voice clip of the Lubavitcher Rebbe (assets/audio/rebbe_speech.mp3). */
+  preloadRebbeSpeech() {
+    if (typeof fetch !== 'function') return;
+    this.rebbeRawPromise = fetch('assets/audio/rebbe_speech.mp3?v=20261127-4')
+      .then((res) => (res.ok ? res.arrayBuffer() : null))
+      .catch(() => null);
+  }
+
+  async getRebbeBuffer(ctx) {
+    if (this.rebbeBuffer) return this.rebbeBuffer;
+    if (!this.rebbeRawPromise) this.preloadRebbeSpeech();
+    try {
+      const raw = await this.rebbeRawPromise;
+      if (!raw || !ctx) return null;
+      this.rebbeBuffer = await ctx.decodeAudioData(raw.slice(0));
+      return this.rebbeBuffer;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  isRebbeSpeaking() {
+    return Boolean(this.rebbeSource);
+  }
+
+  /** Play the authentic short speech clip of the Lubavitcher Rebbe; supports clean instant stopping. */
+  async playRebbeSpeech({ onStart, onEnd } = {}) {
+    this.stopRebbeSpeech(true);
+    const ctx = this.ensureContext();
+    if (!ctx) return false;
+    const buffer = await this.getRebbeBuffer(ctx);
+    if (!buffer) return false;
+
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+
+    const gain = ctx.createGain();
+    const now = ctx.currentTime;
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.linearRampToValueAtTime(0.95, now + 0.06);
+
+    src.connect(gain);
+    gain.connect(ctx.destination);
+
+    this.rebbeSource = src;
+    this.rebbeGain = gain;
+    this.rebbeOnEnd = onEnd || null;
+
+    src.onended = () => {
+      if (this.rebbeSource === src) {
+        this.rebbeSource = null;
+        this.rebbeGain = null;
+        const cb = this.rebbeOnEnd;
+        this.rebbeOnEnd = null;
+        if (cb) cb();
+      }
+    };
+
+    src.start(now);
+    if (onStart) onStart();
+    return true;
+  }
+
+  /** Stop the Rebbe speech clip cleanly with a brief anti-click fade-out. */
+  stopRebbeSpeech(silent = false) {
+    const src = this.rebbeSource;
+    const gain = this.rebbeGain;
+    const cb = this.rebbeOnEnd;
+    this.rebbeSource = null;
+    this.rebbeGain = null;
+    this.rebbeOnEnd = null;
+
+    if (src) {
+      src.onended = null;
+      try {
+        if (this.ctx && gain) {
+          const now = this.ctx.currentTime;
+          gain.gain.cancelScheduledValues(now);
+          gain.gain.setValueAtTime(Math.max(0.0001, gain.gain.value), now);
+          gain.gain.linearRampToValueAtTime(0.0001, now + 0.055);
+          src.stop(now + 0.065);
+        } else {
+          src.stop();
+        }
+      } catch (_) {}
+    }
+    if (!silent && cb) cb();
   }
 
   async getLchaimBuffer(ctx) {
