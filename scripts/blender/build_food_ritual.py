@@ -341,24 +341,37 @@ def build_kiddush_cup():
         )
     )
 
-    # Glossy ruby-red kosher wine meniscus filled near the top!
-    wine_z = z0 + 0.146
+    # Glossy deep-ruby kosher wine 3D liquid volume filled generously near the brim (~6 mm below lip)
+    # with an authentic concave capillary meniscus climbing smoothly up the gold-washed silver inner wall!
+    # Kept as a separate named child mesh ("KosherWine_Liquid") so Three.js upgrades it to MeshPhysicalMaterial
+    # with true IOR 1.335 refraction, ruby attenuation, and crisp mirror candlelight reflections!
+    wine_z = z0 + 0.1515  # generous traditional Kiddush fill level (~8.5 mm below outer flared lip, clearly visible!)
     wine_prof = [
-        (0.001, wine_z - 0.0012),
-        (0.024, wine_z - 0.0010),
-        (0.0322, wine_z + 0.0008),  # subtle capillary meniscus rise at glass/silver wall!
+        (0.001, z0 + 0.080),       # deep interior bottom following inner bowl
+        (0.0175, z0 + 0.088),
+        (0.0278, z0 + 0.114),
+        (0.0308, z0 + 0.140),
+        (0.0332, wine_z + 0.0024), # capillary meniscus climbing up the inner gold-washed wall!
+        (0.0315, wine_z + 0.0006),
+        (0.0265, wine_z - 0.0004),
+        (0.0140, wine_z - 0.0007),
+        (0.0005, wine_z - 0.0008),
     ]
-    parts.append(create_lathe_mesh("KosherWine", wine_prof, segments=40, cap_bottom=False, cap_top=False, mat=mat_wine))
+    wine_obj = create_lathe_mesh("KosherWine_Liquid", wine_prof, segments=56, cap_bottom=True, cap_top=True, mat=mat_wine)
+    set_smooth(wine_obj, 65.0)
 
     join_objects(parts, "Kiddush_Cup_Set")
     export_glb(os.path.join(MODELS_DIR, "kiddush_cup.glb"))
 
     render_previews(
         "kiddush_cup",
-        views=[("three_quarter", (0.18, -0.24, 0.16), 52.0)],
-        target=(0.0, 0.0, 0.08),
+        views=[
+            ("three_quarter", (0.18, -0.24, 0.20), 52.0),
+            ("top_wine", (0.12, -0.16, 0.28), 55.0),
+        ],
+        target=(0.0, 0.0, 0.11),
         res=(640, 640),
-        samples=32,
+        samples=36,
     )
 
 

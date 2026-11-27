@@ -66,11 +66,13 @@ const CAMERA_PRESETS = {
   },
 };
 
+// Axial spin angle (radians) that puts each Hebrew letter facing straight UP
+// when the dreidel topples sideways (+X tilt ~ 82.5 deg) onto the table!
 const DREIDEL_OUTCOMES = [
-  { letter: 'נ', name: 'Nun (נ)', meaning: 'Nes — Nothing happens · "A great miracle happened there"', yaw: 0 },
-  { letter: 'ג', name: 'Gimel (ג)', meaning: 'Gadol — Take the whole pot of gelt!', yaw: -Math.PI / 2 },
-  { letter: 'ה', name: 'Hey (ה)', meaning: 'Hayah — Take half the pot!', yaw: Math.PI },
-  { letter: 'ש', name: 'Shin (ש)', meaning: 'Sham — Put one piece of gelt in the pot', yaw: Math.PI / 2 },
+  { letter: 'נ', name: 'Nun (נ)', meaning: 'Nes — Nothing happens · "A great miracle happened there"', spinAngle: Math.PI },
+  { letter: 'ג', name: 'Gimel (ג)', meaning: 'Gadol — Take the whole pot of gelt!', spinAngle: Math.PI / 2 },
+  { letter: 'ה', name: 'Hey (ה)', meaning: 'Hayah — Take half the pot!', spinAngle: 0 },
+  { letter: 'ש', name: 'Shin (ש)', meaning: 'Sham — Put one piece of gelt in the pot', spinAngle: -Math.PI / 2 },
 ];
 
 /**
@@ -162,14 +164,28 @@ class HanukkahApp {
     // Camera transition state
     this.camLerp = null;
 
-    // Interactive playable dreidels scattered across the table
-    this.spinDreidelObj = null;
-    this.standingDreidels = [];
-    this.dreidelSpin = { active: false, targetObj: null, time: 0, duration: 2.8, startYaw: 0, targetYaw: 0, outcome: null };
+    // Interactive playable dreidels scattered across the table (2-node gyroscopic rig: pivot + spinNode)
+    this.primaryDreidel = null;
+    this.interactiveDreidels = []; // [{ pivot, spinNode, baseX, baseY, baseZ, fallen }]
+    this.dreidelSpin = {
+      active: false,
+      rig: null,
+      time: 0,
+      duration: 3.4,
+      wasFallen: false,
+      startTilt: 0,
+      startPrecession: 0,
+      endPrecession: 0,
+      startSpin: 0,
+      targetSpin: 0,
+      outcome: null,
+    };
     this.toastTimer = null;
 
-    // Subtle traditional Hanukkah music player (public-domain Ma'oz Tzur, Dreidel Song, Oh Hanukkah)
+    // Subtle traditional Hanukkah music player (starts on first click/tap anywhere, toggleable on/off)
     this.musicPlayer = new HanukkahMusicPlayer((state) => this.updateMusicHUD(state));
+    this.musicFirstTouchHandled = false;
+    this.bindFirstTouchMusic();
 
     this.clock = new THREE.Clock();
 
@@ -194,6 +210,27 @@ class HanukkahApp {
         musicTrack: this.musicPlayer.currentTrack.title,
       }),
     };
+  }
+
+  bindFirstTouchMusic() {
+    // Start traditional Hanukkah holiday music automatically on the user's very first click/tap/key anywhere
+    // (unless they directly clicked the Music Off button itself).
+    const onFirstTouch = (e) => {
+      if (this.musicFirstTouchHandled) return;
+      if (e.target && e.target.closest && (e.target.closest('#btn-music') || e.target.closest('#btn-cancel'))) {
+        return;
+      }
+      this.musicFirstTouchHandled = true;
+      window.removeEventListener('pointerdown', onFirstTouch, true);
+      window.removeEventListener('touchstart', onFirstTouch, true);
+      window.removeEventListener('keydown', onFirstTouch, true);
+      if (!this.musicPlayer.isPlaying) {
+        this.musicPlayer.start().catch(() => {});
+      }
+    };
+    window.addEventListener('pointerdown', onFirstTouch, { capture: true, passive: true });
+    window.addEventListener('touchstart', onFirstTouch, { capture: true, passive: true });
+    window.addEventListener('keydown', onFirstTouch, { capture: true, passive: true });
   }
 
   bindLoadingUI() {
@@ -422,54 +459,38 @@ class HanukkahApp {
     dreidelLarge.rotation.y = 0.42;
     this.scene.add(dreidelLarge);
 
-    // Scattered playable dreidels spread naturally across the entire dining table (as if mid-game!)
-    // Some standing upright (all clickable to spin!), some lying naturally on their sides at varied angles.
+    // Interactive playable dreidels scattered naturally across the table:
+    // Every dreidel rests naturally tilted/lying on its side by default (like a real dreidel at rest!).
+    // Clicking ANY playable dreidel (or pressing Space / "Spin Dreidel") lifts it upright onto its tip,
+    // spins it rapidly, wobbles as momentum fades, and topples it back down tilted with the rolled letter facing UP!
     const blueProto = assets.models.dreidel_blue.scene;
     const woodProto = assets.models.dreidel_wood.scene;
+    const FLAT_TILT = Math.PI / 2 - 0.13;
 
-    // 1. Standing upright blue dreidel (front-left near gelt — primary interactive spinner)
-    const dreidelStandLeft = enableShadows(blueProto, 1.15);
-    dreidelStandLeft.position.set(-0.17, TABLE_Y, -0.08);
-    dreidelStandLeft.rotation.y = 0.35;
-    this.scene.add(dreidelStandLeft);
-    this.spinDreidelObj = dreidelStandLeft;
-    this.standingDreidels.push(dreidelStandLeft);
+    const createInteractiveDreidel = (meshObj, x, surfaceY, z, restYaw, restLetterSpin) => {
+      const pivot = new THREE.Group();
+      pivot.position.set(x, surfaceY + 0.0155, z);
+      pivot.rotation.order = 'YXZ';
+      pivot.rotation.set(FLAT_TILT, restYaw, 0); // tilted/resting naturally on its side by default!
 
-    // 2. Standing upright wooden dreidel (front-center-right between menorah and sufganiyot)
-    const dreidelStandCenter = enableShadows(woodProto, 1.10);
-    dreidelStandCenter.position.set(0.14, TABLE_Y, -0.02);
-    dreidelStandCenter.rotation.y = -0.62;
-    this.scene.add(dreidelStandCenter);
-    this.standingDreidels.push(dreidelStandCenter);
+      const spinNode = new THREE.Group();
+      spinNode.rotation.y = restLetterSpin;
+      spinNode.add(meshObj);
+      pivot.add(spinNode);
+      this.scene.add(pivot);
 
-    // 3. Standing upright blue dreidel (far right corner past the sufganiyot platter)
-    const dreidelStandRight = enableShadows(blueProto.clone(), 1.15);
-    dreidelStandRight.position.set(0.61, TABLE_Y, 0.02);
-    dreidelStandRight.rotation.y = 1.18;
-    this.scene.add(dreidelStandRight);
-    this.standingDreidels.push(dreidelStandRight);
-
-    // Helper: lay a dreidel cleanly flat on its side with zero sinking into the table!
-    // Dreidel local axis is +Y from tip (0) to handle (0.067), half-width = 0.0145.
-    // Using 'YXZ' order: rotate around world Y (yaw on table), tilt X ~ 82° to lay flat, optional roll Z.
-    const placeLyingDreidel = (obj, x, surfaceY, z, yaw, roll = 0) => {
-      obj.position.set(x, surfaceY + 0.0155, z);
-      obj.rotation.order = 'YXZ';
-      obj.rotation.set(Math.PI / 2 - 0.13, yaw, roll);
-      this.scene.add(obj);
+      const rig = { pivot, spinNode, baseX: x, baseY: surfaceY, baseZ: z, fallen: true };
+      this.interactiveDreidels.push(rig);
+      return rig;
     };
 
-    // 4. Resting wooden dreidel lying on its side (front-left near candle box & matches)
-    placeLyingDreidel(enableShadows(woodProto.clone(), 1.10), -0.51, TABLE_Y, 0.02, 0.72, 0.0);
-
-    // 5. Resting blue dreidel lying on its side (center-front edge of table)
-    placeLyingDreidel(enableShadows(blueProto.clone(), 1.15), -0.04, TABLE_Y, 0.04, -1.15, 0.0);
-
-    // 6. Resting wooden dreidel lying on its side (back-left on walnut wood behind heirloom dreidel)
-    placeLyingDreidel(enableShadows(woodProto.clone(), 1.10), -0.58, TABLE_Y, -0.62, 2.25, 0.0);
-
-    // 7. Resting blue dreidel lying on its side (center-right near kiddush cup & sufganiyot)
-    placeLyingDreidel(enableShadows(blueProto.clone(), 1.15), 0.22, RUNNER_Y, -0.26, -0.48, 0.0);
+    // 6 playable dreidels scattered naturally across the entire walnut table (all tilted at rest, all clickable to spin!)
+    this.primaryDreidel = createInteractiveDreidel(enableShadows(blueProto, 1.15), -0.17, TABLE_Y, -0.06, 0.35, Math.PI / 2); // Gimel up
+    createInteractiveDreidel(enableShadows(woodProto, 1.10), 0.13, TABLE_Y, -0.02, -0.82, Math.PI); // Nun up
+    createInteractiveDreidel(enableShadows(blueProto.clone(), 1.15), 0.61, TABLE_Y, 0.02, 1.28, -Math.PI / 2); // Shin up
+    createInteractiveDreidel(enableShadows(woodProto.clone(), 1.10), -0.51, TABLE_Y, 0.02, 0.72, 0); // Hey up
+    createInteractiveDreidel(enableShadows(woodProto.clone(), 1.10), -0.58, TABLE_Y, -0.62, 2.25, Math.PI / 2); // Gimel up
+    createInteractiveDreidel(enableShadows(blueProto.clone(), 1.15), 0.22, RUNNER_Y, -0.26, -0.48, Math.PI); // Nun up
 
     // Embossed Gold & Silver Chocolate Gelt + Royal-Blue Drawstring Pouch (left foreground)
     const gelt = enableShadows(assets.models.gelt.scene, 1.45);
@@ -483,9 +504,33 @@ class HanukkahApp {
     sufganiyot.rotation.y = -0.35;
     this.scene.add(sufganiyot);
 
-    // Sterling Silver Kiddush Cup & Saucer filled with Kosher Wine (right of hanukkiah on runner)
-    const kiddush = enableShadows(assets.models.kiddush_cup.scene, 1.4);
+    // Sterling Silver Kiddush Cup & Saucer filled with Physically-Based Transparent Red Kosher Wine!
+    const kiddush = enableShadows(assets.models.kiddush_cup.scene, 1.48);
     kiddush.position.set(0.31, RUNNER_Y, -0.46);
+    kiddush.traverse((obj) => {
+      if (!obj.isMesh) return;
+      if (obj.name.includes('KosherWine_Liquid')) {
+        // Real physically-based red wine: deep ruby-garnet transmission, optical IOR 1.335 refraction,
+        // translucent glowing crimson meniscus against the gold-washed silver bowl, and mirror-like candlelight reflections!
+        obj.material = new THREE.MeshPhysicalMaterial({
+          color: new THREE.Color(0x4a040e),
+          roughness: 0.025,
+          metalness: 0.0,
+          transmission: 0.66,
+          ior: 1.335,
+          thickness: 0.042,
+          attenuationColor: new THREE.Color(0x9e081c),
+          attenuationDistance: 0.022,
+          clearcoat: 1.0,
+          clearcoatRoughness: 0.015,
+          reflectivity: 0.92,
+          envMapIntensity: 2.1,
+          transparent: true,
+        });
+        obj.castShadow = false;
+        obj.receiveShadow = false;
+      }
+    });
     this.scene.add(kiddush);
 
     // Braided Challah on Carved Walnut Board with Draped Embroidered Challah Cover (back-right)
@@ -759,17 +804,27 @@ class HanukkahApp {
     };
   }
 
-  triggerDreidelSpin(targetObj = null) {
-    const obj = targetObj || this.spinDreidelObj;
-    if (!obj) return;
+  triggerDreidelSpin(targetRig = null) {
+    const rig = targetRig || this.primaryDreidel;
+    if (!rig) return;
     const outcome = DREIDEL_OUTCOMES[Math.floor(Math.random() * DREIDEL_OUTCOMES.length)];
+    const fullSpins = 9 + Math.floor(Math.random() * 4);
+    const currentSpin = rig.spinNode.rotation.y;
+    const baseRev = Math.ceil(currentSpin / (Math.PI * 2)) * (Math.PI * 2);
+    const targetSpin = baseRev + fullSpins * Math.PI * 2 + outcome.spinAngle;
+
+    const fallDir = (Math.random() * 1.4 - 0.7); // natural forward-facing fall angle so top letter is easy to read!
     this.dreidelSpin = {
       active: true,
-      targetObj: obj,
+      rig,
       time: 0,
-      duration: 2.6,
-      startYaw: obj.rotation.y,
-      targetYaw: outcome.yaw + Math.PI * 2 * (7 + Math.floor(Math.random() * 3)),
+      duration: 3.3,
+      wasFallen: rig.fallen,
+      startTilt: rig.pivot.rotation.x,
+      startPrecession: rig.pivot.rotation.y,
+      endPrecession: fallDir + Math.PI * 2 * 3,
+      startSpin: currentSpin,
+      targetSpin,
       outcome,
     };
 
@@ -783,9 +838,11 @@ class HanukkahApp {
     if (!btn) return;
     btn.classList.toggle('playing', isPlaying);
     btn.setAttribute('aria-pressed', String(isPlaying));
-    btn.textContent = isPlaying ? `♪ ${trackTitle}` : '♪ Music: Off';
+    btn.textContent = isPlaying ? '♪ Music: On' : '♪ Music: Off';
+    btn.title = isPlaying ? `Playing: ${trackTitle} — Click to turn off (M)` : 'Turn Hanukkah music on (M)';
     if (nextBtn) {
       nextBtn.classList.toggle('hidden', !isPlaying);
+      nextBtn.title = `Playing: ${trackTitle} — Next melody`;
     }
   }
 
@@ -820,10 +877,12 @@ class HanukkahApp {
     });
 
     document.getElementById('btn-music').addEventListener('click', () => {
+      this.musicFirstTouchHandled = true;
       this.musicPlayer.toggle();
     });
 
     document.getElementById('btn-next-track').addEventListener('click', () => {
+      this.musicFirstTouchHandled = true;
       this.musicPlayer.nextTrack();
     });
 
@@ -834,7 +893,7 @@ class HanukkahApp {
     document.getElementById('btn-toggle-hud').addEventListener('click', toggleHud);
     document.getElementById('btn-show-hud').addEventListener('click', toggleHud);
 
-    // Click directly on any standing playable dreidel on the table to spin it!
+    // Click directly on any interactive dreidel on the table to spin it!
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
     let pointerDownPos = null;
@@ -842,15 +901,15 @@ class HanukkahApp {
       pointerDownPos = { x: e.clientX, y: e.clientY };
     });
     this.canvas.addEventListener('pointerup', (e) => {
-      if (!pointerDownPos || !this.standingDreidels.length) return;
+      if (!pointerDownPos || !this.interactiveDreidels.length) return;
       const dist = Math.hypot(e.clientX - pointerDownPos.x, e.clientY - pointerDownPos.y);
       if (dist > 6) return;
       pointer.x = (e.clientX / window.innerWidth) * 2 - 1;
       pointer.y = -(e.clientY / window.innerHeight) * 2 + 1;
       raycaster.setFromCamera(pointer, this.camera);
-      for (const dr of this.standingDreidels) {
-        if (raycaster.intersectObject(dr, true).length > 0) {
-          this.triggerDreidelSpin(dr);
+      for (const rig of this.interactiveDreidels) {
+        if (raycaster.intersectObject(rig.pivot, true).length > 0) {
+          this.triggerDreidelSpin(rig);
           break;
         }
       }
@@ -940,25 +999,70 @@ class HanukkahApp {
       this.windowStar.rotation.y = 0.28 * Math.sin(elapsed * 0.55);
     }
 
-    // 3. Smooth interactive Dreidel spin physics
-    const spinTarget = this.dreidelSpin.targetObj || this.spinDreidelObj;
-    if (this.dreidelSpin.active && spinTarget) {
-      this.dreidelSpin.time += dt;
-      const p = Math.min(1.0, this.dreidelSpin.time / this.dreidelSpin.duration);
-      const easeOut = 1.0 - Math.pow(1.0 - p, 3.2);
-      spinTarget.rotation.y =
-        this.dreidelSpin.startYaw + (this.dreidelSpin.targetYaw - this.dreidelSpin.startYaw) * easeOut;
+    // 3. Realistic Gyroscopic Dreidel Physics: Stand Upright -> Fast Spin -> Precession Wobble -> Sideways Topple!
+    if (this.dreidelSpin.active && this.dreidelSpin.rig) {
+      const st = this.dreidelSpin;
+      const { pivot, spinNode, baseX, baseY, baseZ } = st.rig;
+      st.time += dt;
+      const p = Math.min(1.0, st.time / st.duration);
+      const flatTilt = Math.PI / 2 - 0.13; // flush side-lying contact angle on table
 
-      // Realistic gyroscopic wobble that builds slightly as spin slows, then settles upright
-      const wobbleAmp = 0.18 * Math.sin(p * Math.PI) * (0.4 + 0.6 * p);
-      spinTarget.rotation.x = Math.sin(elapsed * 16.0) * wobbleAmp;
-      spinTarget.rotation.z = Math.cos(elapsed * 16.0) * wobbleAmp;
+      // Axial spin decelerates smoothly to stop right as it topples (p ~ 0.90)
+      const spinP = Math.min(1.0, p / 0.90);
+      const spinEase = 1.0 - Math.pow(1.0 - spinP, 2.7);
+      spinNode.rotation.y = st.startSpin + (st.targetSpin - st.startSpin) * spinEase;
+
+      let tilt = 0.0;
+      let yLift = 0.0;
+      let wobbleRadius = 0.0;
+      let precAngle = st.startPrecession;
+
+      if (p < 0.08 && st.wasFallen) {
+        // Phase 1: Lift smoothly back upright onto its spinning tip
+        const u = p / 0.08;
+        const ease = 1.0 - Math.pow(1.0 - u, 2.0);
+        tilt = st.startTilt * (1.0 - ease);
+        yLift = 0.0155 * (1.0 - ease);
+      } else if (p < 0.62) {
+        // Phase 2: Fast, stable upright spin on its tip
+        const u = (p - 0.08) / 0.54;
+        tilt = 0.025 + 0.06 * u * u;
+        precAngle = st.startPrecession + u * Math.PI * 5.0;
+        wobbleRadius = 0.002 * u;
+      } else if (p < 0.84) {
+        // Phase 3: Losing angular momentum — widening gyroscopic precession wobble
+        const u = (p - 0.62) / 0.22;
+        tilt = 0.085 + 0.38 * (u * u);
+        precAngle = st.startPrecession + Math.PI * 5.0 + u * (st.endPrecession - (st.startPrecession + Math.PI * 5.0));
+        wobbleRadius = 0.002 + 0.011 * u;
+        yLift = 0.004 * u;
+      } else {
+        // Phase 4: Topple sideways onto the table with a subtle natural wood-settle bounce!
+        const u = (p - 0.84) / 0.16;
+        const fallEase = 1.0 - Math.pow(1.0 - Math.min(1.0, u * 1.18), 2.4);
+        const bounce = u > 0.72 ? -0.045 * Math.sin(((u - 0.72) / 0.28) * Math.PI) : 0.0;
+        tilt = 0.465 + (flatTilt - 0.465) * fallEase + bounce;
+        precAngle = st.endPrecession;
+        wobbleRadius = 0.013 * (1.0 - fallEase * 0.35);
+        yLift = 0.004 + (0.0155 - 0.004) * fallEase;
+      }
+
+      pivot.rotation.y = precAngle;
+      pivot.rotation.x = tilt;
+      pivot.rotation.z = 0.0;
+      pivot.position.set(
+        baseX + Math.sin(precAngle) * wobbleRadius,
+        baseY + yLift,
+        baseZ + Math.cos(precAngle) * wobbleRadius
+      );
 
       if (p >= 1.0) {
-        this.dreidelSpin.active = false;
-        spinTarget.rotation.x = 0;
-        spinTarget.rotation.z = 0;
-        this.showDreidelToast(this.dreidelSpin.outcome);
+        st.active = false;
+        st.rig.fallen = true;
+        pivot.rotation.x = flatTilt;
+        pivot.rotation.z = 0.0;
+        pivot.position.y = baseY + 0.0155;
+        this.showDreidelToast(st.outcome);
       }
     }
 
