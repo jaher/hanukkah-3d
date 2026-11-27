@@ -616,56 +616,53 @@ def build_challah_and_cover():
         bm_s.free()
         parts.append(strand)
 
-    # 3. Draped Embroidered Challah Cover folded artistically over the left/back 65% of the challah
-    #    so BOTH the gorgeous embroidered cover AND the golden braided challah peeking out are prominently visible!
-    nx, ny = 42, 34
+    # Join walnut board + 4-strand braided golden challah loaf FIRST so Blender's real Cloth simulator
+    # can drape the embroidered cover directly onto the EXACT 3D bread & board geometry with zero clipping!
+    loaf_board_obj = join_objects(parts, "Challah_Loaf_Board")
+
+    # 3. Real Blender Cloth-Simulated Embroidered Challah Cover draping organically over the loaf & resting flat on the table!
+    # Create temporary flat table/runner collider plane at Z = 0.0005 so draped cloth edges lie flat and natural on the table
+    bm_fl = bmesh.new()
+    bmesh.ops.create_grid(bm_fl, x_segments=2, y_segments=2, size=0.6)
+    m_fl = bpy.data.meshes.new("_TmpTableFloor")
+    bm_fl.to_mesh(m_fl)
+    bm_fl.free()
+    floor_col = bpy.data.objects.new("_TmpTableFloor", m_fl)
+    floor_col.location = (0.0, 0.0, 0.0005)
+    bpy.context.collection.objects.link(floor_col)
+
+    for col_obj, outer_t in [(loaf_board_obj, 0.0045), (floor_col, 0.0020)]:
+        bpy.context.view_layer.objects.active = col_obj
+        col_mod = col_obj.modifiers.new("Collision", 'COLLISION')
+        col_obj.collision.thickness_outer = outer_t
+        col_obj.collision.thickness_inner = 0.005
+        col_obj.collision.damping_factor = 0.85
+        col_obj.collision.cloth_friction = 55.0
+
+    # High-resolution rectangular embroidered linen challah cover (44 cm x 34 cm) centered symmetrically over the loaf
+    # so real cloth physics drapes it smoothly over the braided challah ridges, over the oval walnut board,
+    # and lets its hem & corners lie completely flat and relaxed on the tabletop with ZERO bread clipping!
+    nx, ny = 60, 48
     bm_c = bmesh.new()
     uv_l = bm_c.loops.layers.uv.new("UVMap")
     grid = []
-    # Cloth covers X in [-0.195, +0.065] (drapes off left/back edge of board and hugs loaf contour!)
-    # and Y in [-0.145, +0.145]
+    x0, x1 = -0.220, 0.220
+    y0, y1 = -0.172, 0.172
+    start_z = 0.104
     for j in range(ny + 1):
         v_t = j / ny
-        cy = -0.140 + v_t * 0.280
+        cy = y0 + v_t * (y1 - y0)
         row = []
         for i in range(nx + 1):
             u_t = i / nx
-            cx = -0.190 + u_t * 0.260  # right edge rests artistically across the braided loaf around x=+0.07
-
-            # Compute smooth surface height draping generously over the elliptical braided challah loaf + board!
-            # Generous dome clearance (rx=0.156, ry=0.086, height=0.086 above board) guarantees zero bread poke-through!
-            ell = (cx / 0.156) ** 2 + (cy / 0.086) ** 2
-            if ell < 1.0:
-                loaf_h = loaf_z0 + 0.016 + 0.084 * math.sqrt(max(0.0, 1.0 - ell))
-            else:
-                # Smooth natural catenary cloth drape down to board/table
-                d = math.sqrt(ell) - 1.0
-                loaf_h = loaf_z0 + 0.016 * math.exp(-d * 4.2)
-
-            # Outside the oval board, drape softly down to tabletop Z = 0.002!
-            board_ell = (cx / 0.175) ** 2 + (cy / 0.112) ** 2
-            if board_ell > 1.0:
-                bd = math.sqrt(board_ell) - 1.0
-                board_drop = math.exp(-bd * 7.5)
-                z_val = 0.003 + (loaf_h - 0.003) * board_drop
-            else:
-                z_val = loaf_h
-
-            # Subtle organic fabric ripples & pleats along draped edges
-            edge_factor = min(1.0, max(0.0, ell - 0.55))
-            ripple = 0.0030 * edge_factor * math.sin(cx * 34.0 + cy * 26.0) + 0.0016 * math.cos(cy * 42.0)
-            z_val = max(0.0025, z_val + ripple + 0.0065)
-
-            row.append(bm_c.verts.new((cx, cy, z_val)))
+            cx = x0 + u_t * (x1 - x0)
+            dz = 0.0012 * math.sin(u_t * math.pi * 2.0) * math.cos(v_t * math.pi * 2.0)
+            row.append(bm_c.verts.new((cx, cy, start_z + dz)))
         grid.append(row)
 
     for j in range(ny):
         for i in range(nx):
-            v00 = grid[j][i]
-            v10 = grid[j][i + 1]
-            v11 = grid[j + 1][i + 1]
-            v01 = grid[j + 1][i]
-            f = bm_c.faces.new((v00, v10, v11, v01))
+            f = bm_c.faces.new((grid[j][i], grid[j][i + 1], grid[j + 1][i + 1], grid[j + 1][i]))
             uvs = [
                 (i / nx, j / ny),
                 ((i + 1) / nx, j / ny),
@@ -675,38 +672,121 @@ def build_challah_and_cover():
             for loop, uv in zip(f.loops, uvs):
                 loop[uv_l].uv = uv
 
-    # Give the cloth subtle thickness (1.5 mm) so both sides render cleanly in Three.js!
     bmesh.ops.recalc_face_normals(bm_c, faces=bm_c.faces)
     m_c = bpy.data.meshes.new("ChallahCover")
     bm_c.to_mesh(m_c)
     bm_c.free()
     cover_obj = bpy.data.objects.new("ChallahCover", m_c)
     bpy.context.collection.objects.link(cover_obj)
-    sol = cover_obj.modifiers.new("Solidify", 'SOLIDIFY')
-    sol.thickness = 0.0022
-    sol.offset = 1.0
+
+    # Configure realistic heavyweight embroidered linen cloth physics (soft broad folds, lies flat on tabletop!)
     bpy.context.view_layer.objects.active = cover_obj
+    cloth_mod = cover_obj.modifiers.new("Cloth", 'CLOTH')
+    cs = cloth_mod.settings
+    cs.quality = 8
+    cs.mass = 0.34
+    cs.tension_stiffness = 24.0
+    cs.compression_stiffness = 24.0
+    cs.shear_stiffness = 14.0
+    cs.bending_stiffness = 1.65
+    cs.tension_damping = 10.0
+    cs.compression_damping = 10.0
+    cs.shear_damping = 10.0
+    cs.bending_damping = 2.2
+    cs.air_damping = 1.4
+
+    cc = cloth_mod.collision_settings
+    cc.collision_quality = 6
+    cc.distance_min = 0.0040
+    cc.friction = 25.0
+    cc.use_self_collision = True
+    cc.self_distance_min = 0.0030
+    cc.self_friction = 10.0
+
+    # Step Blender timeline so the cloth drops smoothly, hugs the braided challah, and settles flat on the table!
+    scene = bpy.context.scene
+    scene.frame_start = 1
+    scene.frame_end = 76
+    for fr in range(1, 77):
+        scene.frame_set(fr)
+
+    # Bake simulated cloth state into static mesh geometry
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    eval_cover = cover_obj.evaluated_get(depsgraph)
+    baked_mesh = bpy.data.meshes.new_from_object(eval_cover)
+    cover_obj.modifiers.remove(cloth_mod)
+    old_mesh = cover_obj.data
+    cover_obj.data = baked_mesh
+    bpy.data.meshes.remove(old_mesh)
+
+    # Remove temporary colliders & collision modifier from loaf/board
+    loaf_board_obj.modifiers.remove(loaf_board_obj.modifiers["Collision"])
+    bpy.data.objects.remove(floor_col, do_unlink=True)
+    scene.frame_set(1)
+
+    # Smooth gentle Laplacian relaxation (2 tiny passes) + exact guaranteed clearance above bread & tabletop!
+    from mathutils.bvhtree import BVHTree
+    bm_lb = bmesh.new()
+    bm_lb.from_mesh(loaf_board_obj.data)
+    bmesh.ops.triangulate(bm_lb, faces=bm_lb.faces)
+    bvh_lb = BVHTree.FromBMesh(bm_lb)
+    bm_lb.free()
+
+    min_clearance = 999.0
+    pushed_verts = 0
+    for v in cover_obj.data.vertices:
+        # Clamp floor skirt cleanly on top of tabletop
+        if v.co.z < 0.0022:
+            v.co.z = 0.0022
+        # Guarantee strictly positive clearance outside every triangle of the braided challah & board!
+        loc, norm, _idx, dist = bvh_lb.find_nearest(v.co)
+        if loc is not None:
+            to_v = v.co - loc
+            signed_d = to_v.dot(norm)
+            if signed_d < 0.0038:
+                # Push cleanly outward along surface normal + slight upward bias so cloth hugs bread cleanly!
+                push_dir = (norm + Vector((0.0, 0.0, 0.35))).normalized()
+                v.co = loc + push_dir * 0.0042
+                pushed_verts += 1
+                signed_d = 0.0042
+            if signed_d < min_clearance:
+                min_clearance = signed_d
+    print(f"[challah] Cloth sim baked! min_bread_clearance={min_clearance*1000:.2f} mm, adjusted_verts={pushed_verts}")
+
+    # Subtle 1-pass smooth to keep linen folds silky, then outward-only Solidify (+2.0 mm away from bread!)
+    sm_mod = cover_obj.modifiers.new("Smooth", 'SMOOTH')
+    sm_mod.factor = 0.35
+    sm_mod.iterations = 2
+    sol = cover_obj.modifiers.new("Solidify", 'SOLIDIFY')
+    sol.thickness = 0.0020
+    sol.offset = 1.0  # expands STRICTLY outward away from challah loaf & table!
+    bpy.context.view_layer.objects.active = cover_obj
+    bpy.ops.object.modifier_apply(modifier="Smooth")
     bpy.ops.object.modifier_apply(modifier="Solidify")
-    set_smooth(cover_obj, 50.0)
+    set_smooth(cover_obj, 55.0)
     cover_obj.data.materials.append(mat_cover)
-    # Keep ChallahCover + tassels as a separate named object ("Challah_Cover_Group") so clicking the challah
-    # smoothly lifts/uncovers the embroidered cover to reveal the braided golden challah loaf underneath!
+
+    # Keep ChallahCover + corner tassels as "Challah_Cover_Group" so clicking smoothly lifts/uncovers the challah!
     cover_parts = [cover_obj]
     for ci, cj in [(0, 0), (nx, 0), (0, ny), (nx, ny)]:
         co = cover_obj.data.vertices[cj * (nx + 1) + ci].co
+        dir_x = 0.011 if ci == nx else -0.011
+        dir_y = 0.009 if cj == ny else -0.009
         t_pts = [
             Vector((co.x, co.y, co.z)),
-            Vector((co.x + (0.010 if ci == nx else -0.010), co.y + (0.008 if cj == ny else -0.008), max(0.002, co.z - 0.008))),
+            Vector((co.x + dir_x, co.y + dir_y, max(0.003, co.z - 0.004))),
         ]
-        cover_parts.append(create_tube_along_points(f"Tassel_{ci}_{cj}", t_pts, radii=[0.0022, 0.0042], radial_segs=10, mat=mat_tassel))
+        cover_parts.append(create_tube_along_points(f"Tassel_{ci}_{cj}", t_pts, radii=[0.0022, 0.0040], radial_segs=10, mat=mat_tassel))
 
-    join_objects(parts, "Challah_Loaf_Board")
     join_objects(cover_parts, "Challah_Cover_Group")
     export_glb(os.path.join(MODELS_DIR, "challah.glb"))
 
     render_previews(
         "challah",
-        views=[("three_quarter", (0.28, -0.34, 0.26), 48.0)],
+        views=[
+            ("three_quarter", (0.28, -0.34, 0.24), 48.0),
+            ("side_check", (0.04, -0.38, 0.14), 52.0),
+        ],
         target=(0.0, 0.0, 0.045),
         res=(640, 512),
         samples=32,

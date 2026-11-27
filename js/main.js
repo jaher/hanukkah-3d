@@ -689,13 +689,35 @@ class HanukkahApp {
     this.registerInteractive(kiddush, 'kiddush');
     this.scene.add(kiddush);
 
-    // Braided Challah on Carved Walnut Board with Interactive Liftable Embroidered Challah Cover!
+    // Braided Challah on Carved Walnut Board with Real Cloth-Simulated Liftable Embroidered Challah Cover!
     const challah = enableShadows(assets.models.challah.scene, 1.05);
-    challah.position.set(0.60, TABLE_Y, -0.49);
+    challah.position.set(0.60, RUNNER_Y, -0.49);
     challah.rotation.y = -0.42;
     this.challahCover = challah.getObjectByName('Challah_Cover_Group');
     if (this.challahCover) {
       this.challahCoverBasePos = this.challahCover.position.clone();
+      this.challahCover.traverse((obj) => {
+        if (!obj.isMesh || !obj.material) return;
+        const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+        const upgraded = mats.map((m) => {
+          if (m && m.name && m.name.includes('EmbroideredChallahCover')) {
+            return new THREE.MeshPhysicalMaterial({
+              name: m.name,
+              color: m.color ? m.color.clone() : new THREE.Color(0xffffff),
+              map: m.map || null,
+              normalMap: m.normalMap || null,
+              normalScale: new THREE.Vector2(0.85, 0.85),
+              roughness: 0.82,
+              metalness: 0.02,
+              sheen: 0.55,
+              sheenRoughness: 0.68,
+              sheenColor: new THREE.Color(0xf6f0e4),
+            });
+          }
+          return m;
+        });
+        obj.material = Array.isArray(obj.material) ? upgraded : upgraded[0];
+      });
     }
     this.registerInteractive(challah, 'challah');
     this.scene.add(challah);
