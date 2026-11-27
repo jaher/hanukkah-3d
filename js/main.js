@@ -11,14 +11,17 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { GatedAssetLoader } from './asset-loader.js';
-import { computeHanukkahNight, HANUKKAH_2026_NIGHT_DATES } from './hanukkah-calendar.js';
-import { CandleFlameRig } from './flames.js';
-import { createWinterNightExterior } from './winter-window.js';
-import { HanukkahMusicPlayer } from './hanukkah-music.js';
-import { RoomSoundEffects } from './sfx.js';
-import { GeltCoinPhysics } from './coin-physics.js';
-import { ChallahClothCover } from './phys-cloth.js';
+import { GatedAssetLoader } from './asset-loader.js?v=20261127-1';
+import { computeHanukkahNight, HANUKKAH_2026_NIGHT_DATES } from './hanukkah-calendar.js?v=20261127-1';
+import { CandleFlameRig } from './flames.js?v=20261127-1';
+import { createWinterNightExterior } from './winter-window.js?v=20261127-1';
+import { HanukkahMusicPlayer } from './hanukkah-music.js?v=20261127-1';
+import { RoomSoundEffects } from './sfx.js?v=20261127-1';
+import { GeltCoinPhysics } from './coin-physics.js?v=20261127-1';
+import { ChallahClothCover } from './phys-cloth.js?v=20261127-1';
+
+const ASSET_VERSION = '20261127-1';
+const vUrl = (path) => `${path}?v=${ASSET_VERSION}`;
 
 // Exact world heights matching Blender exports (1 unit = 1 meter)
 const TABLE_Z = -0.35;
@@ -26,25 +29,25 @@ const TABLE_Y = 0.760;
 const RUNNER_Y = 0.7632;
 
 const ASSET_MANIFEST = [
-  { key: 'room', type: 'glb', url: 'assets/models/room.glb', label: 'Hanukkah Room Architecture' },
-  { key: 'table', type: 'glb', url: 'assets/models/table.glb', label: 'Walnut Table & Embroidered Runner' },
-  { key: 'hanukkiah', type: 'glb', url: 'assets/models/hanukkiah.glb', label: 'Sterling Silver Hanukkiah' },
-  { key: 'hanukkiah_meta', type: 'json', url: 'assets/models/hanukkiah_meta.json', label: 'Candle Geometry Metadata' },
-  { key: 'dreidel_large', type: 'glb', url: 'assets/models/dreidel_large.glb', label: 'Heirloom Filigree Dreidel' },
-  { key: 'dreidel_blue', type: 'glb', url: 'assets/models/dreidel_blue.glb', label: 'Blue & Silver Dreidel' },
-  { key: 'dreidel_wood', type: 'glb', url: 'assets/models/dreidel_wood.glb', label: 'Carved Wooden Dreidel' },
-  { key: 'gelt', type: 'glb', url: 'assets/models/gelt.glb', label: 'Gold & Silver Chocolate Gelt' },
-  { key: 'sufganiyot', type: 'glb', url: 'assets/models/sufganiyot.glb', label: 'Sufganiyot Porcelain Platter' },
-  { key: 'kiddush_cup', type: 'glb', url: 'assets/models/kiddush_cup.glb', label: 'Sterling Silver Kiddush Cup' },
-  { key: 'challah', type: 'glb', url: 'assets/models/challah.glb', label: 'Braided Challah & Embroidered Cover' },
-  { key: 'votive', type: 'glb', url: 'assets/models/votive.glb', label: 'Cobalt & Silver Votive Candles' },
-  { key: 'candle_box', type: 'glb', url: 'assets/models/candle_box.glb', label: 'Hanukkah Candle Box & Matches' },
-  { key: 'star_wall', type: 'glb', url: 'assets/models/star_wall.glb', label: 'Star of David Wall Medallion' },
-  { key: 'star_window', type: 'glb', url: 'assets/models/star_window.glb', label: 'Window Star of David Ornament' },
-  { key: 'rebbe_portrait', type: 'glb', url: 'assets/models/rebbe_portrait.glb', label: 'Framed Portrait of the Lubavitcher Rebbe' },
-  { key: 'room_lightmap', type: 'texture', url: 'assets/textures/room_lightmap.jpg', label: 'Room GI/AO Lightmap', flipY: false },
-  { key: 'table_lightmap', type: 'texture', url: 'assets/textures/table_lightmap.jpg', label: 'Table GI/AO Lightmap', flipY: false },
-  { key: 'winter_backdrop', type: 'texture', url: 'assets/textures/winter_night_backdrop.jpg', label: 'Winter Night Sky Panorama', flipY: true },
+  { key: 'room', type: 'glb', url: vUrl('assets/models/room.glb'), label: 'Hanukkah Room Architecture' },
+  { key: 'table', type: 'glb', url: vUrl('assets/models/table.glb'), label: 'Walnut Table & Embroidered Runner' },
+  { key: 'hanukkiah', type: 'glb', url: vUrl('assets/models/hanukkiah.glb'), label: 'Sterling Silver Hanukkiah' },
+  { key: 'hanukkiah_meta', type: 'json', url: vUrl('assets/models/hanukkiah_meta.json'), label: 'Candle Geometry Metadata' },
+  { key: 'dreidel_large', type: 'glb', url: vUrl('assets/models/dreidel_large.glb'), label: 'Heirloom Filigree Dreidel' },
+  { key: 'dreidel_blue', type: 'glb', url: vUrl('assets/models/dreidel_blue.glb'), label: 'Blue & Silver Dreidel' },
+  { key: 'dreidel_wood', type: 'glb', url: vUrl('assets/models/dreidel_wood.glb'), label: 'Carved Wooden Dreidel' },
+  { key: 'gelt', type: 'glb', url: vUrl('assets/models/gelt.glb'), label: 'Gold & Silver Chocolate Gelt' },
+  { key: 'sufganiyot', type: 'glb', url: vUrl('assets/models/sufganiyot.glb'), label: 'Sufganiyot Porcelain Platter' },
+  { key: 'kiddush_cup', type: 'glb', url: vUrl('assets/models/kiddush_cup.glb'), label: 'Sterling Silver Kiddush Cup' },
+  { key: 'challah', type: 'glb', url: vUrl('assets/models/challah.glb'), label: 'Braided Challah & Embroidered Cover' },
+  { key: 'votive', type: 'glb', url: vUrl('assets/models/votive.glb'), label: 'Cobalt & Silver Votive Candles' },
+  { key: 'candle_box', type: 'glb', url: vUrl('assets/models/candle_box.glb'), label: 'Hanukkah Candle Box & Matches' },
+  { key: 'star_wall', type: 'glb', url: vUrl('assets/models/star_wall.glb'), label: 'Star of David Wall Medallion' },
+  { key: 'star_window', type: 'glb', url: vUrl('assets/models/star_window.glb'), label: 'Window Star of David Ornament' },
+  { key: 'rebbe_portrait', type: 'glb', url: vUrl('assets/models/rebbe_portrait.glb'), label: 'Framed Portrait of the Lubavitcher Rebbe' },
+  { key: 'room_lightmap', type: 'texture', url: vUrl('assets/textures/room_lightmap.jpg'), label: 'Room GI/AO Lightmap', flipY: false },
+  { key: 'table_lightmap', type: 'texture', url: vUrl('assets/textures/table_lightmap.jpg'), label: 'Table GI/AO Lightmap', flipY: false },
+  { key: 'winter_backdrop', type: 'texture', url: vUrl('assets/textures/winter_night_backdrop.jpg'), label: 'Winter Night Sky Panorama', flipY: true },
 ];
 
 const CAMERA_PRESETS = {
@@ -286,17 +289,23 @@ class HanukkahApp {
   }
 
   bindLoadingUI() {
-    this.btnCancel.addEventListener('click', () => {
-      this.loader.cancel();
-      this.loadingStatus.textContent = 'Loading cancelled. Click Retry Load whenever you are ready.';
-      this.loadingStatus.classList.add('error');
-      this.btnCancel.hidden = true;
-      this.btnRetry.hidden = false;
-    });
+    if (this.btnCancel) {
+      this.btnCancel.addEventListener('click', () => {
+        this.loader.cancel();
+        if (this.loadingStatus) {
+          this.loadingStatus.textContent = 'Loading cancelled. Click Retry Load whenever you are ready.';
+          this.loadingStatus.classList.add('error');
+        }
+        this.btnCancel.hidden = true;
+        if (this.btnRetry) this.btnRetry.hidden = false;
+      });
+    }
 
-    this.btnRetry.addEventListener('click', () => {
-      this.startLoad();
-    });
+    if (this.btnRetry) {
+      this.btnRetry.addEventListener('click', () => {
+        this.startLoad();
+      });
+    }
   }
 
   async startLoad() {
@@ -1077,7 +1086,7 @@ class HanukkahApp {
     const activeCount = this.interactiveDreidels.filter((r) => r.spin && r.spin.active).length;
     if (activeCount <= 1) {
       const toast = document.getElementById('dreidel-toast');
-      toast.classList.add('hidden');
+      if (toast) toast.classList.add('hidden');
     }
   }
 
@@ -1378,9 +1387,13 @@ class HanukkahApp {
 
   showActionToast(symbol, title, detail) {
     const toast = document.getElementById('dreidel-toast');
-    document.getElementById('dreidel-letter').textContent = symbol;
-    document.getElementById('dreidel-name').textContent = title;
-    document.getElementById('dreidel-meaning').textContent = detail;
+    if (!toast) return;
+    const letterEl = document.getElementById('dreidel-letter');
+    const nameEl = document.getElementById('dreidel-name');
+    const meaningEl = document.getElementById('dreidel-meaning');
+    if (letterEl) letterEl.textContent = symbol;
+    if (nameEl) nameEl.textContent = title;
+    if (meaningEl) meaningEl.textContent = detail;
     toast.classList.remove('hidden');
     if (this.toastTimer) clearTimeout(this.toastTimer);
     this.toastTimer = setTimeout(() => toast.classList.add('hidden'), 4400);
@@ -1413,22 +1426,31 @@ class HanukkahApp {
       });
     }
 
-    document.getElementById('btn-music').addEventListener('click', () => {
-      this.musicFirstTouchHandled = true;
-      this.musicPlayer.toggle();
-    });
+    const musicBtn = document.getElementById('btn-music');
+    if (musicBtn) {
+      musicBtn.addEventListener('click', () => {
+        this.musicFirstTouchHandled = true;
+        this.musicPlayer.toggle();
+      });
+    }
 
-    document.getElementById('btn-next-track').addEventListener('click', () => {
-      this.musicFirstTouchHandled = true;
-      this.musicPlayer.nextTrack();
-    });
+    const nextTrackBtn = document.getElementById('btn-next-track');
+    if (nextTrackBtn) {
+      nextTrackBtn.addEventListener('click', () => {
+        this.musicFirstTouchHandled = true;
+        this.musicPlayer.nextTrack();
+      });
+    }
 
+    const showHudBtn = document.getElementById('btn-show-hud');
     const toggleHud = () => {
+      if (!this.hud) return;
       const hidden = this.hud.classList.toggle('hidden');
-      document.getElementById('btn-show-hud').classList.toggle('hidden', !hidden);
+      if (showHudBtn) showHudBtn.classList.toggle('hidden', !hidden);
     };
-    document.getElementById('btn-toggle-hud').addEventListener('click', toggleHud);
-    document.getElementById('btn-show-hud').addEventListener('click', toggleHud);
+    const toggleHudBtn = document.getElementById('btn-toggle-hud');
+    if (toggleHudBtn) toggleHudBtn.addEventListener('click', toggleHud);
+    if (showHudBtn) showHudBtn.addEventListener('click', toggleHud);
 
     // Unified raycaster for ALL interactive objects in the room!
     const raycaster = new THREE.Raycaster();
@@ -1520,14 +1542,15 @@ class HanukkahApp {
       this.goToCamera(camParam, true);
     }
 
+    const showHudBtn = document.getElementById('btn-show-hud');
     if (params.get('clean') === '1') {
       this.suppressInitialHud = true;
-      this.hud.classList.add('hidden');
-      document.getElementById('btn-show-hud').classList.add('hidden');
+      if (this.hud) this.hud.classList.add('hidden');
+      if (showHudBtn) showHudBtn.classList.add('hidden');
     } else if (hudParam === '0' || hudParam === 'false') {
       this.suppressInitialHud = true;
-      this.hud.classList.add('hidden');
-      document.getElementById('btn-show-hud').classList.remove('hidden');
+      if (this.hud) this.hud.classList.add('hidden');
+      if (showHudBtn) showHudBtn.classList.remove('hidden');
     }
   }
 
